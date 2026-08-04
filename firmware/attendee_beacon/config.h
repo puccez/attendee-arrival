@@ -29,6 +29,10 @@
 #define BEACON_DEFAULT_WIFI_PASSWORD ""
 
 /* Potenza calibrata a 1 m dichiarata nel frame iBeacon (int8, dBm). */
+/* Nome annunciato nella scan response: serve solo a chi verifica con uno
+ * scanner BLE generico (il payload iBeacon riempie già i 31 byte). */
+#define BEACON_NAME "wemeet-notaio"
+
 #define BEACON_MEASURED_POWER (-59)
 
 /* Intervallo di advertising in unità da 0,625 ms (160 = 100 ms). */

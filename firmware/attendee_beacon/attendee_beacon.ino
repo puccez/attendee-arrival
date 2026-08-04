@@ -104,8 +104,17 @@ static void advertiseCode(uint16_t major, uint16_t minor) {
   data.setFlags(0x06);
   data.setManufacturerData(manufacturer, IBEACON_MANUFACTURER_LEN);
 
+  /* Il payload iBeacon riempie i 31 byte: il nome non ci sta. Va nella
+   * scan response, altrimenti uno scanner mostra un dispositivo anonimo
+   * (il beacon è non-connettibile, quindi il nome GAP non è leggibile).
+   * Serve solo agli umani che verificano — l'app usa UUID e major/minor. */
+  NimBLEAdvertisementData scanResponse;
+  scanResponse.setName(BEACON_NAME);
+
   advertising->stop();
   advertising->setAdvertisementData(data);
+  advertising->setScanResponseData(scanResponse);
+  advertising->enableScanResponse(true);
   advertising->start();
 }
 
@@ -281,7 +290,7 @@ void setup() {
   loadSettings();
   connectWifiAndSyncClock();
 
-  NimBLEDevice::init("wemeet-notaio");
+  NimBLEDevice::init(BEACON_NAME);
   NimBLEDevice::setPower(3); /* dBm */
   advertising = NimBLEDevice::getAdvertising();
   advertising->setMinInterval(BEACON_ADV_INTERVAL);
