@@ -80,6 +80,33 @@ export function fetchCurrentCode(
   return request(`/events/${eventId}/code`);
 }
 
+export interface TelemetryPayload {
+  deviceId: string;
+  events: { at: string; kind: string; detail?: string }[];
+}
+
+/**
+ * Telemetria: cosa ha fatto il telefono. Non tocca la cucitura di verifica —
+ * un fallimento qui non deve avere conseguenze, quindi si limita a dire se
+ * la riga è partita e non solleva mai.
+ */
+export async function postTelemetry(
+  eventId: string,
+  payload: TelemetryPayload,
+): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE}/events/${eventId}/telemetry`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    // Un 4xx è definitivo: la riga è malformata, inutile ritentare per sempre.
+    return response.ok || (response.status >= 400 && response.status < 500);
+  } catch {
+    return false; // offline: si ritenta al prossimo giro
+  }
+}
+
 /** La cucitura: consegna del borsellino → check-in etichettato. */
 export async function postDelivery(
   eventId: string,

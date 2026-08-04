@@ -1,6 +1,12 @@
 import type { AttendeeCheckIn } from "../check-in/check-ins.service.js";
 import type { WeMeetEvent } from "../events/events.service.js";
-import type { AttendeeState, CheckInsStore, EventsStore } from "./store.js";
+import type {
+  AttendeeState,
+  CheckInsStore,
+  DeviceEvent,
+  EventsStore,
+  TelemetryStore,
+} from "./store.js";
 
 /** Store in-memory: test e sviluppo locale senza database. */
 export class InMemoryEventsStore implements EventsStore {
@@ -40,5 +46,19 @@ export class InMemoryCheckInsStore implements CheckInsStore {
 
   async list(eventId: string): Promise<AttendeeCheckIn[]> {
     return [...(this.results.get(eventId)?.values() ?? [])];
+  }
+}
+
+export class InMemoryTelemetryStore implements TelemetryStore {
+  readonly events = new Map<string, DeviceEvent[]>();
+
+  append(
+    eventId: string,
+    deviceId: string,
+    events: DeviceEvent[],
+  ): Promise<void> {
+    const key = `${eventId}:${deviceId}`;
+    this.events.set(key, [...(this.events.get(key) ?? []), ...events]);
+    return Promise.resolve();
   }
 }

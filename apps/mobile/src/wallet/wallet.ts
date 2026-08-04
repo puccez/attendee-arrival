@@ -1,6 +1,6 @@
 import * as SQLite from "expo-sqlite";
 
-import { postDelivery, type ApiCheckIn } from "../lib/api";
+import { postDelivery, postTelemetry, type ApiCheckIn } from "../lib/api";
 import {
   deliveryOutcome,
   groupIntoDeliveries,
@@ -55,6 +55,19 @@ async function db(): Promise<SQLite.SQLiteDatabase> {
       started_at TEXT NOT NULL,
       ended_at TEXT,
       PRIMARY KEY (event_id, started_at)
+    );
+
+    -- Telemetria: perché il telefono ha taciuto. Non prova niente e non
+    -- entra nella verifica — serve a distinguere «dormiva» da «se n'era
+    -- andato» quando si guarda un buco nella timeline. Bufferizzata come i
+    -- codici, così sopravvive all'offline.
+    CREATE TABLE IF NOT EXISTS device_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id TEXT NOT NULL,
+      at TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      detail TEXT,
+      sent_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS check_ins (
@@ -203,6 +216,71 @@ export async function closePresenceSession(
     at.toISOString(),
     eventId,
   );
+}
+
+/**
+ * Annota un fatto osservato dal telefono.
+ *
+ * Deliberatamente a prova di errore: la telemetria non deve mai poter far
+ * fallire il giro che la produce. Se scrivere non riesce, si perde una riga
+ * di log — non un codice.
+ */
+export async function logDeviceEvent(
+  eventId: string,
+  kind: string,
+  detail?: string,
+  at: Date = new Date(),
+): Promise<void> {
+  try {
+    await (
+      await db()
+    ).runAsync(
+      "INSERT INTO device_events (event_id, at, kind, detail) VALUES (?, ?, ?, ?)",
+      eventId,
+      at.toISOString(),
+      kind,
+      detail ?? null,
+    );
+  } catch {
+    /* la diagnostica non è mai un motivo per rompere il flusso */
+  }
+}
+
+/**
+ * Spedisce le righe non ancora consegnate. Separata da `flush`: i risvegli
+ * più interessanti da raccontare sono quelli senza codici da consegnare.
+ */
+export async function flushTelemetry(
+  eventId: string,
+  deviceId: string,
+): Promise<number> {
+  const rows = await (
+    await db()
+  ).getAllAsync<{ id: number; at: string; kind: string; detail: string | null }>(
+    "SELECT id, at, kind, detail FROM device_events WHERE event_id = ? AND sent_at IS NULL ORDER BY at LIMIT 500",
+    eventId,
+  );
+  if (rows.length === 0) return 0;
+
+  const sent = await postTelemetry(eventId, {
+    deviceId,
+    events: rows.map((r) => ({
+      at: r.at,
+      kind: r.kind,
+      ...(r.detail ? { detail: r.detail } : {}),
+    })),
+  });
+  if (!sent) return 0;
+
+  const placeholders = rows.map(() => "?").join(",");
+  await (
+    await db()
+  ).runAsync(
+    `UPDATE device_events SET sent_at = ? WHERE id IN (${placeholders})`,
+    new Date().toISOString(),
+    ...rows.map((r) => r.id),
+  );
+  return rows.length;
 }
 
 export async function presenceSessions(

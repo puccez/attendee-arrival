@@ -9,7 +9,9 @@ import {
   closePresenceSession,
   collectCode,
   flush,
+  flushTelemetry,
   getDeviceId,
+  logDeviceEvent,
   markArrival,
   openPresenceSession,
   readSetting,
@@ -41,16 +43,21 @@ export const SETTING_EVENT_NAME = "event-name";
 export async function drainRadioBacklog(eventId: string): Promise<number> {
   if (!WemeetBeacon) return 0;
   let collected = 0;
+  let seen = 0;
   try {
     const backlog = await WemeetBeacon.drainBackgroundSightingsAsync();
     for (const raw of backlog) {
       const sighting = normalizeSighting(raw, BEACON_UUID);
       if (!sighting?.code) continue;
+      seen++;
       if (await collectCode(eventId, sighting.code, sighting.at)) collected++;
     }
-  } catch {
+  } catch (error) {
     // Modulo assente o Bluetooth spento: l'app resta utilizzabile.
+    await logDeviceEvent(eventId, "radio_error", String(error).slice(0, 200));
   }
+  // Anche (soprattutto) lo zero va detto: è la riga che spiega un silenzio.
+  await logDeviceEvent(eventId, "radio_drain", `visti=${seen} nuovi=${collected}`);
   return collected;
 }
 
@@ -58,10 +65,12 @@ export async function drainRadioBacklog(eventId: string): Promise<number> {
 export async function handleArrival(options: {
   gpsInside: boolean;
   notify: boolean;
+  reason?: string;
 }): Promise<void> {
   const eventId = await readSetting(SETTING_EVENT_ID);
   if (!eventId) return;
 
+  await logDeviceEvent(eventId, "wake", options.reason ?? "sconosciuto");
   await drainRadioBacklog(eventId);
   if (options.gpsInside) {
     await markArrival(eventId, { gpsInside: true });
@@ -70,9 +79,17 @@ export async function handleArrival(options: {
   if (options.notify) {
     const eventName = (await readSetting(SETTING_EVENT_NAME)) ?? "il WeMeet";
     await presentArrival(eventId, eventName).catch(() => {});
+    await logDeviceEvent(eventId, "notifica_mostrata");
   }
 
-  await flush(await getDeviceId()).catch(() => {});
+  const deviceId = await getDeviceId();
+  const report = await flush(deviceId).catch(() => null);
+  await logDeviceEvent(
+    eventId,
+    report ? "consegna" : "consegna_fallita",
+    report ? `consegnati=${report.delivered} in_attesa=${report.retryLater}` : undefined,
+  );
+  await flushTelemetry(eventId, deviceId).catch(() => 0);
 }
 
 TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
@@ -83,10 +100,18 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
   if (eventType === Location.GeofencingEventType.Enter) {
     // L'Arrivo: dichiarazione di posizione, non prova. Innesca la notifica
     // e apre la caccia ai codici — non produce nessun check-in da solo.
-    await handleArrival({ gpsInside: true, notify: true });
+    await handleArrival({
+      gpsInside: true,
+      notify: true,
+      reason: "geofence_ingresso",
+    });
   } else if (eventType === Location.GeofencingEventType.Exit) {
     // All'uscita si campiona un'ultima volta: è l'altro estremo del dwell.
-    await handleArrival({ gpsInside: false, notify: false });
+    await handleArrival({
+      gpsInside: false,
+      notify: false,
+      reason: "geofence_uscita",
+    });
   }
 });
 
@@ -106,7 +131,9 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
 WemeetBeacon?.addListener("onRegionEnter", () => {
   void (async () => {
     const eventId = await readSetting(SETTING_EVENT_ID);
-    if (eventId) await openPresenceSession(eventId);
+    if (!eventId) return;
+    await logDeviceEvent(eventId, "region_ingresso");
+    await openPresenceSession(eventId);
   })();
 });
 
@@ -114,9 +141,12 @@ WemeetBeacon?.addListener("onRegionExit", () => {
   void (async () => {
     const eventId = await readSetting(SETTING_EVENT_ID);
     if (!eventId) return;
+    await logDeviceEvent(eventId, "region_uscita");
     await closePresenceSession(eventId);
     // La chiusura vale quanto la raccolta: si prova a consegnarla subito.
-    await flush(await getDeviceId()).catch(() => {});
+    const deviceId = await getDeviceId();
+    await flush(deviceId).catch(() => {});
+    await flushTelemetry(eventId, deviceId).catch(() => 0);
   })();
 });
 

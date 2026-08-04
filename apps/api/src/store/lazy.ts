@@ -1,8 +1,18 @@
 import type { AttendeeCheckIn } from "../check-in/check-ins.service.js";
 import type { WeMeetEvent } from "../events/events.service.js";
-import { InMemoryCheckInsStore, InMemoryEventsStore } from "./in-memory.js";
-import { PgCheckInsStore, PgClient, PgEventsStore } from "./pg.js";
-import type { AttendeeState, CheckInsStore, EventsStore } from "./store.js";
+import {
+  InMemoryCheckInsStore,
+  InMemoryEventsStore,
+  InMemoryTelemetryStore,
+} from "./in-memory.js";
+import { PgCheckInsStore, PgClient, PgEventsStore, PgTelemetryStore } from "./pg.js";
+import type {
+  AttendeeState,
+  CheckInsStore,
+  DeviceEvent,
+  EventsStore,
+  TelemetryStore,
+} from "./store.js";
 
 /**
  * Selezione dello store rimandata al primo uso, a runtime: alcuni builder
@@ -13,6 +23,7 @@ interface Backing {
   kind: "postgres" | "memory";
   events: EventsStore;
   checkIns: CheckInsStore;
+  telemetry: TelemetryStore;
 }
 
 let backing: Backing | null = null;
@@ -26,12 +37,14 @@ export function resolveBacking(): Backing {
         kind: "postgres",
         events: new PgEventsStore(client),
         checkIns: new PgCheckInsStore(client),
+        telemetry: new PgTelemetryStore(client),
       };
     } else {
       backing = {
         kind: "memory",
         events: new InMemoryEventsStore(),
         checkIns: new InMemoryCheckInsStore(),
+        telemetry: new InMemoryTelemetryStore(),
       };
     }
   }
@@ -61,5 +74,15 @@ export class LazyCheckInsStore implements CheckInsStore {
   }
   list(eventId: string): Promise<AttendeeCheckIn[]> {
     return resolveBacking().checkIns.list(eventId);
+  }
+}
+
+export class LazyTelemetryStore implements TelemetryStore {
+  append(
+    eventId: string,
+    deviceId: string,
+    events: DeviceEvent[],
+  ): Promise<void> {
+    return resolveBacking().telemetry.append(eventId, deviceId, events);
   }
 }

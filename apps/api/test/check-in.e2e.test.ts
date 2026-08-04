@@ -116,6 +116,32 @@ describe("POST /events/:id/deliveries — la cucitura via HTTP", () => {
     expect(list.body[0].quality.validCodes).toBe(2);
   });
 
+  it("la telemetria si accetta ma non tocca il giudizio", async () => {
+    // Un risveglio che non ha sentito niente: nessun codice da consegnare,
+    // ma la riga di log parte lo stesso — è quella che spiega il silenzio.
+    const event = await createEvent();
+    const accepted = await request(http)
+      .post(`/events/${event.id}/telemetry`)
+      .send({
+        deviceId: "device-anna",
+        events: [
+          { at: "2026-08-07T19:40:00Z", kind: "wake", detail: "geofence_ingresso" },
+          { at: "2026-08-07T19:40:02Z", kind: "radio_drain", detail: "visti=0 nuovi=0" },
+        ],
+      });
+    expect(accepted.status).toBe(201);
+    expect(accepted.body.accepted).toBe(2);
+
+    // Nessun check-in nato dalla telemetria: non è una consegna.
+    const list = await request(http).get(`/events/${event.id}/check-ins`);
+    expect(list.body).toHaveLength(0);
+
+    const malformed = await request(http)
+      .post(`/events/${event.id}/telemetry`)
+      .send({ deviceId: "device-anna", events: [{ kind: "wake" }] });
+    expect(malformed.status).toBe(400);
+  });
+
   it("le sessioni si accumulano fra consegne: l'uscita chiude, il rientro riapre", async () => {
     // Prima consegna: sessione ancora aperta. Seconda: la stessa sessione
     // arriva chiusa, più una nuova dopo il rientro. I minuti fuori non contano.

@@ -38,6 +38,19 @@ const deliverySchema = z.object({
   confirmationTap: z.boolean().optional(),
 });
 
+const telemetrySchema = z.object({
+  deviceId: z.string().min(1),
+  events: z
+    .array(
+      z.object({
+        at: z.coerce.date(),
+        kind: z.string().min(1).max(40),
+        detail: z.string().max(400).optional(),
+      }),
+    )
+    .max(500),
+});
+
 const createEventSchema = z.object({
   name: z.string().min(1),
   startsAt: z.coerce.date(),
@@ -124,6 +137,32 @@ export class CheckInController {
     if (!parsed.success) throw new BadRequestException(parsed.error.issues);
     const event = await this.events.get(eventId);
     return this.checkIns.record(event, parsed.data, this.clock.now());
+  }
+
+  /**
+   * Telemetria del device: cosa ha fatto il telefono, non cosa ha provato.
+   *
+   * Endpoint separato dalle consegne di proposito, per due ragioni. La prima
+   * è di fiducia: la telemetria non entra nella cucitura di verifica e non
+   * deve nemmeno passarci accanto. La seconda è pratica: i momenti da
+   * raccontare più interessanti sono quelli in cui *non* c'è niente da
+   * consegnare — un risveglio che non ha sentito nessun codice è la riga di
+   * log che spiega un silenzio.
+   */
+  @Post("events/:eventId/telemetry")
+  async telemetry(
+    @Param("eventId") eventId: string,
+    @Body() body: unknown,
+  ): Promise<{ accepted: number }> {
+    const parsed = telemetrySchema.safeParse(body);
+    if (!parsed.success) throw new BadRequestException(parsed.error.issues);
+    await this.events.get(eventId); // 404 se sconosciuto
+    await resolveBacking().telemetry.append(
+      eventId,
+      parsed.data.deviceId,
+      parsed.data.events,
+    );
+    return { accepted: parsed.data.events.length };
   }
 
   /** La dashboard dell'host: lo stato di tutti gli attendee dell'evento. */

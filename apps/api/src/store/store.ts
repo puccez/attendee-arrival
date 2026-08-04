@@ -21,6 +21,29 @@ export interface AttendeeState {
   gpsInsideSeen: boolean;
 }
 
+/**
+ * Un fatto osservato dal device, buono solo per capire cosa è successo.
+ *
+ * Sta fuori dalla cucitura di verifica di proposito: la telemetria arriva da
+ * un client non fidato e non deve poter spostare un giudizio. Serve a
+ * rispondere alla domanda che i codici non sanno risolvere — «perché fra le
+ * 22:21 e le 22:58 non ho sentito niente?» — distinguendo un telefono che
+ * dormiva da uno che se n'era andato.
+ */
+export interface DeviceEvent {
+  at: Date;
+  kind: string;
+  detail?: string;
+}
+
+export interface TelemetryStore {
+  append(
+    eventId: string,
+    deviceId: string,
+    events: DeviceEvent[],
+  ): Promise<void>;
+}
+
 export interface CheckInsStore {
   load(eventId: string, deviceId: string): Promise<AttendeeState | null>;
   save(

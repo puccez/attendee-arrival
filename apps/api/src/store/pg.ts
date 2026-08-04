@@ -1,7 +1,13 @@
 import pg from "pg";
 import type { AttendeeCheckIn } from "../check-in/check-ins.service.js";
 import type { WeMeetEvent } from "../events/events.service.js";
-import type { AttendeeState, CheckInsStore, EventsStore } from "./store.js";
+import type {
+  AttendeeState,
+  CheckInsStore,
+  DeviceEvent,
+  EventsStore,
+  TelemetryStore,
+} from "./store.js";
 
 /**
  * Store su Postgres (nella demo: Supabase; in produzione: qualunque
@@ -51,7 +57,18 @@ export class PgClient {
          -- Le tabelle create prima delle sessioni di presenza non hanno la
          -- colonna: CREATE TABLE IF NOT EXISTS non la aggiungerebbe mai.
          ALTER TABLE check_ins
-           ADD COLUMN IF NOT EXISTS sessions jsonb NOT NULL DEFAULT '[]';`,
+           ADD COLUMN IF NOT EXISTS sessions jsonb NOT NULL DEFAULT '[]';
+         -- Telemetria: fuori dalla cucitura di verifica, e in tabella a parte
+         -- perché il volume è di un altro ordine e non deve appesantire la
+         -- riga che si legge a ogni consegna.
+         CREATE TABLE IF NOT EXISTS device_events (
+           event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+           device_id text NOT NULL,
+           at timestamptz NOT NULL,
+           kind text NOT NULL,
+           detail text,
+           PRIMARY KEY (event_id, device_id, at, kind)
+         );`,
       )
       .then(() => undefined);
     return this.ready;
@@ -93,6 +110,32 @@ export class PgEventsStore implements EventsStore {
       endsAt: new Date(r.ends_at),
       geofence: r.geofence ?? undefined,
     };
+  }
+}
+
+export class PgTelemetryStore implements TelemetryStore {
+  constructor(private readonly db: PgClient) {}
+
+  async append(
+    eventId: string,
+    deviceId: string,
+    events: DeviceEvent[],
+  ): Promise<void> {
+    if (events.length === 0) return;
+    await this.db.ensureSchema();
+    // Il device rispedisce volentieri: la chiave primaria assorbe i doppioni.
+    const values = events
+      .map((_, i) => `($1, $2, $${i * 3 + 3}, $${i * 3 + 4}, $${i * 3 + 5})`)
+      .join(",");
+    await this.db.pool.query(
+      `INSERT INTO device_events (event_id, device_id, at, kind, detail)
+       VALUES ${values} ON CONFLICT DO NOTHING`,
+      [
+        eventId,
+        deviceId,
+        ...events.flatMap((e) => [e.at, e.kind, e.detail ?? null]),
+      ],
+    );
   }
 }
 
