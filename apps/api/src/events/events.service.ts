@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { EventWindow } from "@attendee-arrival/core";
+import { EVENTS_STORE, type EventsStore } from "../store/store.js";
 
 export interface WeMeetEvent extends EventWindow {
   name: string;
@@ -8,30 +9,30 @@ export interface WeMeetEvent extends EventWindow {
 }
 
 /**
- * Store in-memory degli eventi (demo). Il seme è per-evento e nasce qui:
+ * Gli eventi e il loro seme. Il seme è per-evento e nasce qui:
  * non lascia il server se non verso la console dell'evento (beacon-notaio).
  */
 @Injectable()
 export class EventsService {
-  private readonly events = new Map<string, WeMeetEvent>();
+  constructor(@Inject(EVENTS_STORE) private readonly store: EventsStore) {}
 
-  create(input: {
+  async create(input: {
     name: string;
     startsAt: Date;
     endsAt: Date;
     geofence?: { lat: number; lng: number; radiusM: number };
-  }): WeMeetEvent {
+  }): Promise<WeMeetEvent> {
     const event: WeMeetEvent = {
       id: randomUUID(),
       seed: randomBytes(32).toString("hex"),
       ...input,
     };
-    this.events.set(event.id, event);
+    await this.store.create(event);
     return event;
   }
 
-  get(id: string): WeMeetEvent {
-    const event = this.events.get(id);
+  async get(id: string): Promise<WeMeetEvent> {
+    const event = await this.store.get(id);
     if (!event) throw new NotFoundException(`Evento sconosciuto: ${id}`);
     return event;
   }

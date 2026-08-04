@@ -57,15 +57,15 @@ export class CheckInController {
 
   /** Dettagli pubblici dell'evento: il seme NON esce mai da qui. */
   @Get("events/:eventId")
-  getEvent(@Param("eventId") eventId: string) {
-    const { seed: _seed, ...publicEvent } = this.events.get(eventId);
+  async getEvent(@Param("eventId") eventId: string) {
+    const { seed: _seed, ...publicEvent } = await this.events.get(eventId);
     return publicEvent;
   }
 
   /** Il codice corrente per la console dell'evento (beacon-notaio). */
   @Get("events/:eventId/code")
-  currentCode(@Param("eventId") eventId: string) {
-    const event = this.events.get(eventId);
+  async currentCode(@Param("eventId") eventId: string) {
+    const event = await this.events.get(eventId);
     return {
       code: deriveRotatingCode(event.seed, this.clock.now()),
       at: this.clock.now().toISOString(),
@@ -73,20 +73,22 @@ export class CheckInController {
   }
 
   @Post("events/:eventId/deliveries")
-  deliver(
+  async deliver(
     @Param("eventId") eventId: string,
     @Body() body: unknown,
-  ): AttendeeCheckIn {
+  ): Promise<AttendeeCheckIn> {
     const parsed = deliverySchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(parsed.error.issues);
-    const event = this.events.get(eventId);
+    const event = await this.events.get(eventId);
     return this.checkIns.record(event, parsed.data, this.clock.now());
   }
 
   /** La dashboard dell'host: lo stato di tutti gli attendee dell'evento. */
   @Get("events/:eventId/check-ins")
-  listCheckIns(@Param("eventId") eventId: string): AttendeeCheckIn[] {
-    this.events.get(eventId); // 404 se sconosciuto
+  async listCheckIns(
+    @Param("eventId") eventId: string,
+  ): Promise<AttendeeCheckIn[]> {
+    await this.events.get(eventId); // 404 se sconosciuto
     return this.checkIns.list(eventId);
   }
 }

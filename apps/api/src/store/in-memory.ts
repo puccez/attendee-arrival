@@ -1,0 +1,44 @@
+import type { AttendeeCheckIn } from "../check-in/check-ins.service.js";
+import type { WeMeetEvent } from "../events/events.service.js";
+import type { AttendeeState, CheckInsStore, EventsStore } from "./store.js";
+
+/** Store in-memory: test e sviluppo locale senza database. */
+export class InMemoryEventsStore implements EventsStore {
+  private readonly events = new Map<string, WeMeetEvent>();
+
+  async create(event: WeMeetEvent): Promise<void> {
+    this.events.set(event.id, event);
+  }
+
+  async get(id: string): Promise<WeMeetEvent | null> {
+    return this.events.get(id) ?? null;
+  }
+}
+
+export class InMemoryCheckInsStore implements CheckInsStore {
+  private readonly states = new Map<string, AttendeeState>();
+  private readonly results = new Map<string, Map<string, AttendeeCheckIn>>();
+
+  async load(eventId: string, deviceId: string): Promise<AttendeeState | null> {
+    return this.states.get(`${eventId}:${deviceId}`) ?? null;
+  }
+
+  async save(
+    eventId: string,
+    deviceId: string,
+    state: AttendeeState,
+    result: AttendeeCheckIn,
+  ): Promise<void> {
+    this.states.set(`${eventId}:${deviceId}`, state);
+    let byDevice = this.results.get(eventId);
+    if (!byDevice) {
+      byDevice = new Map();
+      this.results.set(eventId, byDevice);
+    }
+    byDevice.set(deviceId, result);
+  }
+
+  async list(eventId: string): Promise<AttendeeCheckIn[]> {
+    return [...(this.results.get(eventId)?.values() ?? [])];
+  }
+}
