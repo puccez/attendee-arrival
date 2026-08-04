@@ -18,7 +18,7 @@
         "NSLocationWhenInUseUsageDescription": "Serve a rilevare il tuo arrivo al WeMeet e a sentire il beacon del locale.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Serve a preparare il check-in quando entri nel locale, anche col telefono in tasca. La posizione non viene mai usata come prova.",
         "NSBluetoothAlwaysUsageDescription": "Serve ad ascoltare il codice del beacon del locale: è la prova che eri lì.",
-        "UIBackgroundModes": ["location", "bluetooth-central", "remote-notification"]
+        "UIBackgroundModes": ["location", "bluetooth-central"]
       }
     },
     "android": {
@@ -50,7 +50,8 @@
         {
           "color": "#f5b301"
         }
-      ]
+      ],
+      "./plugins/with-local-notifications-only"
     ]
   }
 }
