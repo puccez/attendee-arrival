@@ -31,6 +31,48 @@ npx expo prebuild --clean
 npx expo run:android      # oppure: npx expo run:ios
 ```
 
+### Toolchain iOS su un Mac senza Homebrew
+
+Su un Mac con solo Xcode installato servono node e CocoaPods, e nessuno
+dei due ha bisogno di `sudo` né di brew:
+
+```bash
+# node: tarball ufficiale in ~/.local
+curl -fsSL https://nodejs.org/dist/v24.19.0/node-v24.19.0-darwin-arm64.tar.gz \
+  | tar xz -C ~/.local/node --strip-components=1
+export PATH="$HOME/.local/node/bin:$PATH"
+
+# CocoaPods: la ruby di sistema (2.6) non basta più — le gem moderne
+# pretendono >= 3.1. La portable-ruby di Homebrew è rilocabile e si
+# scarica dalle release, senza installare brew.
+curl -fsSL https://github.com/Homebrew/homebrew-portable-ruby/releases/download/3.4.5/portable-ruby-3.4.5.arm64_big_sur.bottle.tar.gz \
+  | tar xz -C ~/.local/portable-ruby --strip-components=1
+export PATH="$HOME/.local/portable-ruby/3.4.5/bin:$PATH"
+export LANG=en_US.UTF-8
+gem install cocoapods --no-document
+```
+
+### Compilare e installare sull'iPhone
+
+```bash
+./scripts/build-ios-device.sh          # Release (autonoma) + installazione
+./scripts/build-ios-device.sh --debug  # Debug (richiede Metro in rete)
+```
+
+Non serve l'abbonamento da 99 dollari: un **Personal Team** (Apple ID
+gratuito, aggiunto in Xcode → Settings → Accounts) firma per il proprio
+device. Il certificato dura **7 giorni**: passati quelli l'app non parte
+più e si ricompila.
+
+Alla prima installazione, sull'iPhone: Impostazioni → Generali → VPN e
+gestione dispositivo → fidati dello sviluppatore.
+
+> **Lo script va lanciato da un Terminale sul Mac, non via SSH.** La firma
+> del codice ha bisogno del portachiavi di login, a cui una sessione SSH
+> non arriva: `codesign` fallisce con `errSecInternalComponent`. Tutto il
+> resto — prebuild, pod install, compilazione — funziona anche da remoto,
+> ed è così che questo progetto è stato verificato.
+
 > **Fuori dal workspace pnpm.** `apps/mobile` è escluso in
 > `pnpm-workspace.yaml` e ha il suo `npm install`. Tenerlo dentro
 > obbligherebbe ogni build Vercel dell'API a risolvere react-native e le
@@ -86,12 +128,17 @@ React 19.2.3), il typecheck è pulito su due programmi separati — l'app
 genera il progetto Android senza warning, con `wemeet-beacon` correttamente
 autolinkato e tutti i permessi nel manifest.
 
-**Non ancora verificato**: la compilazione Gradle del Kotlin e quella Xcode
-dello Swift. Servono JDK + Android SDK + NDK (~6 GB) e macOS: al primo
-`expo run:android` può saltare fuori qualche divergenza nell'API nativa.
-Il codice usa i pattern documentati di Expo Modules (`Record` per gli
-argomenti strutturati, `CodedException`/`GenericException` per gli errori)
-proprio per ridurre quella superficie.
+**Verificato su macOS** (Xcode 26.6, iOS SDK 26.5): `pod install` risolve
+`WemeetBeacon`, e **il modulo Swift compila** — `WemeetBeaconModule.o` e
+`libWemeetBeacon.a` per arm64, zero errori, sia in Debug che in Release
+(quest'ultima include il bundling JS). Il canale radio su iPhone non è
+codice scritto a occhio: è codice che il compilatore ha accettato.
+
+**Non ancora verificato**: la compilazione Gradle del Kotlin. Servono JDK
++ Android SDK + NDK (~6 GB): al primo `expo run:android` può saltare
+fuori qualche divergenza nell'API nativa. Il codice usa i pattern
+documentati di Expo Modules (`Record` per gli argomenti strutturati,
+`CodedException` per gli errori) proprio per ridurre quella superficie.
 
 I moduli sotto `src/lib/` e `src/beacon/normalize.ts` non importano niente
 di React Native apposta: si testano con `node --test`, senza device né
