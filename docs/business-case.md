@@ -7,7 +7,8 @@ Business case WeRoad — risposta di Emanuele Puccetti, agosto 2026.
 - **Demo live** (funziona da telefono e da laptop, niente da installare): https://attendee-arrival-web.vercel.app
 - **API** (la cucitura di verifica, in produzione su Vercel + Postgres): https://attendee-arrival-api.vercel.app/health
 - **Sandbox d'attacco**: si apre dalla console dell'evento che crei, o direttamente da `…/attacker/<id-evento>`
-- **Codice**: Turborepo TypeScript — NestJS, Nuxt/Vue, `packages/core` condiviso, 20 test
+- **Codice**: Turborepo TypeScript nello stack di WeRoad — NestJS, Nuxt/Vue, core
+  condiviso — più il firmware C del beacon ESP32, con test di parità fra i due
 
 **Come leggere.** In due minuti: la tabella di tracciabilità (§1) e il meccanismo (§3).
 In dieci: aggiungi l'anti-frode (§6) e apri la demo mentre lo leggi. In mezz'ora:
@@ -467,11 +468,13 @@ compiacente può spuntare chi vuole. È un rischio che WeRoad già corre oggi, c
 differenza che ora **è visibile nel dato** invece di essere indistinguibile dal resto.
 
 **ESP32 senza RTC.** Un dispositivo fisso senza orologio a batteria, dopo un
-power-cycle, riparte con l'ora sbagliata e produce codici che nessuno può
-verificare. Serve NTP all'avvio e **il battito del beacon in dashboard**, altrimenti
-un venue degrada in silenzio. È anche l'argomento più forte per cui il default di
-prodotto è il telefono dell'host: ora di rete sempre giusta, connettività, nessuna
-flotta da gestire in decine di città.
+power-cycle, riparte con l'ora sbagliata e produrrebbe codici che nessuno può
+verificare. Il firmware lo affronta di petto — NTP all'avvio, ora impostabile da
+seriale, e un valore sentinella nel frame finché l'orologio non è valido (§10) —
+ma resta un pezzo di hardware che può degradare in silenzio se nessuno guarda: per
+questo esiste il battito del beacon in dashboard. Ed è l'argomento più forte per
+cui il default di prodotto resta il telefono dell'host: ora di rete sempre giusta,
+connettività, nessuna flotta da gestire in decine di città.
 
 ### 9.2 I limiti di questa implementazione
 
@@ -514,13 +517,30 @@ livello web *vero* del prodotto (il fallback universale), non un mock del nativo
 salgono via `uploadData` **alla cucitura di verifica, mai con scritture dirette al
 database**. Lo stato etichettato torna giù dal sync stream, filtrato per device.
 
-**Il canale radio.** Quello che vedi girare qui è il **canale ottico**: stesso
-codice, stessa verifica, trasporto diverso. Il canale radio non è dimostrabile da
-un browser — nessun browser può ascoltare l'advertising BLE in background — e per
-questo la demo lo dichiara invece di simularlo. È anche il motivo per cui la web
-app non è un mockup del nativo: **è il livello di fallback del sistema reale**,
-quello che serve a chi non ha l'app, ha il Bluetooth spento, o è appena arrivato
-e non ha installato niente.
+**`firmware/`** — il **beacon-notaio fisico**: un ESP32 che emette il Codice
+Rotante come frame iBeacon. UUID di prossimità fisso (è l'identità su cui iOS
+sveglia l'app: non può ruotare), codice nei campi *major*/*minor* con una
+divisione decimale scelta apposta perché uno scanner BLE generico mostri
+`major 12 / minor 3456` e tu legga **123456** senza convertire niente — così il
+canale radio si verifica con nRF Connect e il confronto con il QR della console è
+a occhio nudo. La derivazione è C puro senza dipendenze crittografiche, e **4 test
+di parità** verificano che TypeScript e C producano lo stesso codice sugli stessi
+input, con gli stessi confini di finestra. Il seme si provisiona a caldo da
+seriale: non serve riflashare fra un evento e l'altro.
+
+**Il limite dell'orologio, gestito rumorosamente.** L'ESP32 non ha RTC a batteria
+(§9.1). All'avvio sincronizza via NTP, o riceve l'ora da seriale; finché l'ora non
+è valida **annuncia comunque l'UUID** — così il risveglio dell'app in prossimità
+continua a funzionare — ma con `major=0 minor=0`, che significa «orologio non
+sincronizzato». Fallisce a voce alta invece di emettere in silenzio codici che
+nessuno accrediterà.
+
+**Sul canale radio nella demo web.** Quello che gira nel browser è il **canale
+ottico**: stesso codice, stessa verifica, trasporto diverso. Nessun browser può
+ascoltare l'advertising BLE in background, quindi la demo web lo dichiara invece
+di simularlo. È anche il motivo per cui la web app non è un mockup del nativo:
+**è il livello di fallback del sistema reale**, quello che serve a chi non ha
+l'app, ha il Bluetooth spento, o è appena arrivato e non ha installato niente.
 
 **Perché si innesta senza attrito.** Lo stack è lo stesso di WeRoad, adottato 1:1:
 il modulo NestJS entra nel backend, il modulo client entra nell'app Expo, i
@@ -543,10 +563,11 @@ region monitoring per il risveglio, cattura BLE dei codici, push one-tap, stesso
 borsellino. **Il server non cambia**: è la stessa API, gli stessi codici, la stessa
 etichetta. Il canale ottico resta il fallback universale.
 
-**Fase 2 — beacon fissi dove conviene.** Un ESP32 nei venue ricorrenti: canale
-radio sempre acceso, permanenza densa, zero gesti. È un'ottimizzazione per venue,
-non un prerequisito — e ogni venue che non ce l'ha continua a funzionare come in
-fase 0.
+**Fase 2 — beacon fissi dove conviene.** L'ESP32 nei venue ricorrenti (firmware
+in `firmware/`, §10): canale radio sempre acceso, permanenza densa, zero gesti.
+Costa pochi euro a venue, si provisiona in un minuto e resta acceso. È
+un'ottimizzazione per venue, non un prerequisito — e ogni venue che non ce l'ha
+continua a funzionare come in fase 0.
 
 Ogni fase è utile da sola e nessuna rompe la precedente. Se la fase 2 non arriva
 mai, il sistema resta in piedi.
@@ -597,8 +618,14 @@ inventarselo.
 
 **Emissione** (beacon-notaio):
 `codice = tronca6( HMAC-SHA256( seme_evento, floor(unix_ms / 30000) ) )`
-Frame iBeacon: UUID fisso (identità su cui il sistema operativo sveglia l'app —
-non può ruotare), codice a 20 bit nei campi *major*/*minor*.
+
+Frame iBeacon: UUID di prossimità **fisso** (è l'identità su cui il sistema
+operativo registra la region e sveglia l'app: non può ruotare, e dice solo
+«questo è un beacon WeMeet»), codice ripartito in decimale fra i due campi che
+ruotano — `major = codice / 10000`, `minor = codice % 10000`, quindi
+`codice = major × 10000 + minor`. L'`eventId` non sta nel frame: lo conosce il
+client dalla registrazione dell'attendee, ed è ciò che determina il seme contro
+cui il server verifica.
 
 **Consegna** (client → server), l'unica porta di scrittura:
 
