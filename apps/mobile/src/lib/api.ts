@@ -1,0 +1,90 @@
+import { API_BASE } from "./config";
+import type { DeliveryPayload } from "./delivery";
+
+/**
+ * Client dell'API di verifica. Sottile per costruzione: tutta la logica di
+ * fiducia vive dietro questa porta, sul server. Il client non decide niente
+ * — raccoglie e consegna (vedi docs/spec.md).
+ *
+ * I tipi rispecchiano @attendee-arrival/core (packages/core/src/verification.ts):
+ * sono duplicati qui e non importati perché l'app Expo sta fuori dal
+ * workspace pnpm (vedi README.md).
+ */
+
+export type Provenance = "machine" | "human" | "machine+human" | "none";
+
+export interface Quality {
+  /** Codici validi distinti: una finestra di 30 s = un codice. */
+  validCodes: number;
+  /** Arco di tempo coperto dai codici: il dwell opportunistico. */
+  coverageMinutes: number;
+  /** Tap sulla notifica one-tap: arricchisce la qualità, mai la provenienza. */
+  tappedNotification: boolean;
+}
+
+export interface ApiCheckIn {
+  eventId: string;
+  deviceId: string;
+  accredited: boolean;
+  provenance: Provenance;
+  quality: Quality;
+  attendeeName?: string;
+  updatedAt: string;
+}
+
+export interface ApiEvent {
+  id: string;
+  name: string;
+  startsAt: string;
+  endsAt: string;
+  geofence?: { lat: number; lng: number; radiusM: number };
+}
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, init);
+  if (!response.ok) {
+    throw new ApiError(
+      `${init?.method ?? "GET"} ${path}: HTTP ${response.status}`,
+      response.status,
+    );
+  }
+  return (await response.json()) as T;
+}
+
+export function fetchEvent(eventId: string): Promise<ApiEvent> {
+  return request<ApiEvent>(`/events/${eventId}`);
+}
+
+/**
+ * Il codice corrente secondo il server. Serve solo alla diagnostica della
+ * demo ("il beacon sta emettendo il codice giusto?"): l'app non ne ha
+ * bisogno per funzionare — non deriva niente, ascolta e basta.
+ */
+export function fetchCurrentCode(
+  eventId: string,
+): Promise<{ code: string; at: string }> {
+  return request(`/events/${eventId}/code`);
+}
+
+/** La cucitura: consegna del borsellino → check-in etichettato. */
+export async function postDelivery(
+  eventId: string,
+  payload: DeliveryPayload,
+): Promise<{ status: number; checkIn: ApiCheckIn | null }> {
+  const response = await fetch(`${API_BASE}/events/${eventId}/deliveries`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const checkIn = response.ok ? ((await response.json()) as ApiCheckIn) : null;
+  return { status: response.status, checkIn };
+}

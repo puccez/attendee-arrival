@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["WemeetBeaconModule"]
+  },
+  "android": {
+    "modules": ["com.firstlayer.wemeetbeacon.WemeetBeaconModule"]
+  }
+}

@@ -1,0 +1,140 @@
+# apps/mobile — app attendee (Expo + React Native)
+
+Il lato telefono della **testimonianza co-prodotta**: il beacon fa da notaio
+(ancora spazio-temporale), il telefono fa da sensore — raccoglie i **Codici
+Rotanti** dall'ESP32 e ne fa eco alla stessa API della demo web.
+
+Il telefono non giudica niente: non deriva codici, non decide se sono
+validi, non calcola qualità. Raccoglie e consegna. Tutta la logica di
+fiducia vive dietro la cucitura di verifica (`POST /events/:id/deliveries`).
+
+## Cosa fa
+
+| | |
+| --- | --- |
+| **Canale radio** | ascolta il frame iBeacon del beacon-notaio e legge il Codice Rotante da major/minor |
+| **Risveglio in prossimità** | iOS: region monitoring CoreLocation (l'app si sveglia da chiusa). Android: scansione BLE via PendingIntent. Più il geofence dell'evento su entrambe |
+| **Notifica one-tap** | all'arrivo. Il tap arricchisce la qualità, mai la provenienza |
+| **Borsellino** | i codici si accumulano in SQLite locale e salgono da soli appena c'è rete |
+| **Canale ottico** | se la radio non arriva, il codice si digita a mano: è lo stesso codice |
+| **Dwell opportunistico** | campionamento all'ingresso, all'uscita e a ogni ritorno in foreground — non continuo, iOS non lo consente |
+
+## Perché serve una dev build (e non Expo Go)
+
+Il canale radio è un modulo nativo: Expo Go non lo contiene. Serve
+`expo prebuild` + `expo run:*`, cioè Xcode (iOS) o Android SDK.
+
+```bash
+cd apps/mobile
+npm install
+npx expo prebuild --clean
+npx expo run:android      # oppure: npx expo run:ios
+```
+
+> **Fuori dal workspace pnpm.** `apps/mobile` è escluso in
+> `pnpm-workspace.yaml` e ha il suo `npm install`. Tenerlo dentro
+> obbligherebbe ogni build Vercel dell'API a risolvere react-native e le
+> dipendenze native: il tier 1 (in produzione) non si mette a rischio per
+> il tier 2. Il prezzo è che i tipi condivisi con `packages/core` sono
+> ridichiarati in `src/lib/api.ts`, con il rimando alla fonte.
+
+## Il canale radio, piattaforma per piattaforma
+
+Il modulo nativo sta in `modules/wemeet-beacon/`. Una sola porta
+TypeScript, due implementazioni — perché le due piattaforme espongono il
+canale radio in modo diverso, e vale la pena dirlo:
+
+**iOS — CoreLocation, non CoreBluetooth.** iOS *non consegna* gli annunci
+iBeacon a CoreBluetooth: li riserva a CoreLocation. Qualunque libreria BLE
+generica (ble-plx compresa) su iPhone non vedrebbe il beacon **affatto**.
+Si usano quindi `startMonitoring` (risveglio all'ingresso nella region,
+anche ad app chiusa, con permesso "Sempre") e `startRangingBeacons`
+(major/minor = il codice). È il motivo per cui l'UUID è fisso: è l'identità
+su cui il sistema decide di svegliare l'app. Ciò che ruota sta in
+major/minor.
+
+**Android — BluetoothLeScanner.** Android consegna i manufacturer data
+grezzi: il frame arriva intatto e lo interpreta il parser condiviso
+(`src/lib/ibeacon.ts`), quello testato contro il firmware. In background la
+stessa scansione si registra con un `PendingIntent`: il sistema sveglia
+`BeaconScanReceiver`, che accoda l'avvistamento e fa scattare la notifica
+one-tap in modo nativo (l'app resta chiusa). Al risveglio l'app drena la
+coda nel borsellino.
+
+Il modulo è caricato con `requireOptionalNativeModule`: se la dev build non
+lo contiene, l'app **non crasha** — resta il canale ottico. La porta della
+copertura non si chiude, si etichetta.
+
+## Provare senza ESP32
+
+Il canale ottico è lo stesso codice: apri `GET /events/:id/code` (o la
+console host) e digita le sei cifre nel campo "canale ottico". Il check-in
+che ne esce è indistinguibile da quello radio — il server non sa da quale
+canale è arrivato il codice, ed è il punto.
+
+## Test
+
+```bash
+npm test        # logica pura: frame iBeacon, normalizzazione, consegne
+npm run typecheck
+```
+
+I moduli sotto `src/lib/` e `src/beacon/normalize.ts` non importano niente
+di React Native apposta: si testano con `node --test`, senza device né
+emulatore. Il resto (permessi, task di background, UI) è cucitura sottile
+sopra questi.
+
+Il test più importante non è qui ma in `firmware/test/`: la **parità a tre**
+fra il C che emette, il TypeScript che legge (questo parser) e il core che
+verifica. `make -C firmware test`.
+
+## Configurazione
+
+`app.json` → `expo.extra`:
+
+```json
+{ "apiBase": "https://attendee-arrival-api.vercel.app",
+  "beaconUuid": "B6C60396-4B64-44D6-84E7-54909270550C" }
+```
+
+L'UUID deve combaciare con `firmware/attendee_beacon/config.h`.
+L'`eventId` non sta nel frame: lo si incolla all'avvio dell'app (te lo dà
+la console dell'host), coerentemente con la spec — l'intent di check-in
+include l'evento di registrazione.
+
+## Il borsellino e PowerSync
+
+Oggi la coda è SQLite locale (`src/wallet/wallet.ts`) con la stessa
+strategia di `apps/web/app/powersync/connector.ts`: gli item si raggruppano
+per evento in un'unica consegna, un 2xx o un 4xx li consumano, un 5xx o
+l'assenza di rete li lascia in coda. La logica di raggruppamento
+(`src/lib/delivery.ts`) è isolata e testata proprio perché è il pezzo che
+PowerSync riuserebbe: sostituire la coda significa chiamare
+`groupIntoDeliveries` da `uploadData` invece che da `flush`.
+
+Lo swap a `@powersync/react-native` è preparato ma non fatto: al momento
+`@powersync/op-sqlite` dichiara `@op-engineering/op-sqlite ^13–^15` mentre
+la versione corrente è la 17, e risolvere quel nodo non aggiunge niente
+alla dimostrazione del canale radio — il borsellino offline è già
+osservabile così. La demo web resta il posto dove PowerSync gira davvero.
+
+## Permessi
+
+Nessuno è obbligatorio: senza radio resta il codice a mano, senza notifiche
+resta l'app aperta, senza posizione resta tutto tranne il risveglio.
+
+- **Android 12+**: `BLUETOOTH_SCAN` con `neverForLocation` — si scansiona
+  senza chiedere la posizione. La posizione serve solo al geofence.
+- **iOS**: posizione "Sempre". Senza, l'iPhone non sente il beacon affatto
+  (vedi sopra) e non c'è risveglio da app chiusa.
+
+## Limiti dichiarati
+
+- **iOS in background dà ~10 secondi** per risveglio: bastano per catturare
+  il codice corrente e accodarlo, non per un campionamento continuo. Il
+  dwell è opportunistico per costruzione, non per pigrizia.
+- **La scansione in background su Android** è a bassa potenza (duty cycle
+  ~10%): gli avvistamenti arrivano a raffiche, non in flusso.
+- **Il beacon non vede i telefoni.** La direzione è telefono-ascolta: in
+  background iOS è invisibile e i MAC ruotano. Il beacon non sa chi c'è, ed
+  è una proprietà del design, non un limite.

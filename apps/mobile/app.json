@@ -1,0 +1,57 @@
+{
+  "expo": {
+    "name": "WeMeet Check-in",
+    "slug": "wemeet-attendee",
+    "scheme": "wemeet",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "extra": {
+      "apiBase": "https://attendee-arrival-api.vercel.app",
+      "beaconUuid": "B6C60396-4B64-44D6-84E7-54909270550C"
+    },
+    "ios": {
+      "bundleIdentifier": "com.firstlayer.wemeetattendee",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Serve a rilevare il tuo arrivo al WeMeet e a sentire il beacon del locale.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Serve a preparare il check-in quando entri nel locale, anche col telefono in tasca. La posizione non viene mai usata come prova.",
+        "NSBluetoothAlwaysUsageDescription": "Serve ad ascoltare il codice del beacon del locale: è la prova che eri lì.",
+        "UIBackgroundModes": ["location", "bluetooth-central", "remote-notification"]
+      }
+    },
+    "android": {
+      "package": "com.firstlayer.wemeetattendee",
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ]
+    },
+    "plugins": [
+      "expo-dev-client",
+      "expo-sqlite",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Serve a preparare il check-in quando entri nel locale. La posizione non è mai una prova: sveglia l'app e basta.",
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#f5b301"
+        }
+      ]
+    ]
+  }
+}

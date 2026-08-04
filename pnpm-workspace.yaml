@@ -1,5 +1,10 @@
 packages:
   - "apps/*"
+  # L'app Expo resta fuori dal workspace pnpm: ha il suo npm install e le sue
+  # dipendenze native (react-native, ble-plx). Tenerla dentro obbligherebbe
+  # ogni build Vercel dell'API a risolverle — il tier 1 non si mette a
+  # rischio per il tier 2. Vedi apps/mobile/README.md.
+  - "!apps/mobile"
   - "packages/*"
 allowBuilds:
   '@journeyapps/wa-sqlite': true

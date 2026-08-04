@@ -32,10 +32,8 @@
 #include <time.h>
 
 #include "config.h"
+#include "ibeacon_frame.h"
 #include "rotating_code.h"
-
-/* Il frame iBeacon: 2 byte company id + 23 byte di payload Apple. */
-static const size_t IBEACON_MANUFACTURER_LEN = 25;
 
 static Preferences prefs;
 static NimBLEAdvertising *advertising = nullptr;
@@ -94,34 +92,12 @@ static bool parseUuid(const String &text, uint8_t out[16]) {
 
 /* ---------------------------------------------------------- advertising */
 
-/*
- * Il frame, byte per byte (verificabile con qualunque scanner BLE):
- *   4C 00        company id Apple, little-endian
- *   02 15        tipo iBeacon + lunghezza del payload che segue (21)
- *   16 byte      UUID di prossimità, big-endian
- *   2 byte       major, big-endian
- *   2 byte       minor, big-endian
- *   1 byte       potenza calibrata a 1 m (int8)
- */
-static void buildManufacturerData(uint16_t major, uint16_t minor,
-                                  uint8_t out[IBEACON_MANUFACTURER_LEN]) {
-  size_t i = 0;
-  out[i++] = 0x4C;
-  out[i++] = 0x00;
-  out[i++] = 0x02;
-  out[i++] = 0x15;
-  memcpy(out + i, proximityUuid, 16);
-  i += 16;
-  out[i++] = (uint8_t)(major >> 8);
-  out[i++] = (uint8_t)(major & 0xFF);
-  out[i++] = (uint8_t)(minor >> 8);
-  out[i++] = (uint8_t)(minor & 0xFF);
-  out[i++] = (uint8_t)(int8_t)BEACON_MEASURED_POWER;
-}
-
+/* La forma dei byte in onda sta in ibeacon_frame.c: è un contratto fra
+ * firmware, app attendee e test di parità, non un dettaglio dello sketch. */
 static void advertiseCode(uint16_t major, uint16_t minor) {
   uint8_t manufacturer[IBEACON_MANUFACTURER_LEN];
-  buildManufacturerData(major, minor, manufacturer);
+  ibeacon_build_manufacturer_data(proximityUuid, major, minor,
+                                  (int8_t)BEACON_MEASURED_POWER, manufacturer);
 
   NimBLEAdvertisementData data;
   /* 0x02 LE General Discoverable | 0x04 BR/EDR non supportato. */

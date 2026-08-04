@@ -1,0 +1,6 @@
+# Output di expo prebuild: rigenerabile, non si committa.
+/ios
+/android
+.expo/
+node_modules/
+*.log

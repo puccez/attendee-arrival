@@ -1,0 +1,20 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools">
+
+  <!-- Android 12+: si può scansionare senza chiedere la posizione, purché
+       si dichiari che la scansione non serve a ricavarla. La posizione qui
+       non è mai una prova: è solo l'innesco della notifica. -->
+  <uses-permission
+    android:name="android.permission.BLUETOOTH_SCAN"
+    android:usesPermissionFlags="neverForLocation"
+    tools:targetApi="s" />
+
+  <application>
+    <!-- Riceve gli avvistamenti quando l'app non è viva: il sistema sveglia
+         il receiver, che accoda il frame e fa scattare la notifica one-tap. -->
+    <receiver
+      android:name="com.firstlayer.wemeetbeacon.BeaconScanReceiver"
+      android:exported="false" />
+  </application>
+
+</manifest>
