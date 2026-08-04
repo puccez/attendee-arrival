@@ -116,6 +116,24 @@ describe("POST /events/:id/deliveries — la cucitura via HTTP", () => {
     expect(list.body[0].quality.validCodes).toBe(2);
   });
 
+  it("emette un token PowerSync firmato col secret Supabase, sub = deviceId", async () => {
+    process.env.SUPABASE_JWT_SECRET = "test-secret-abbastanza-lungo-123456";
+    process.env.POWERSYNC_URL = "https://test.powersync.example";
+    const res = await request(http)
+      .post("/powersync-token")
+      .send({ deviceId: "device-anna" });
+
+    expect(res.status).toBe(201);
+    expect(res.body.endpoint).toBe("https://test.powersync.example");
+    const { default: jwt } = await import("jsonwebtoken");
+    const payload = jwt.verify(
+      res.body.token,
+      "test-secret-abbastanza-lungo-123456",
+      { audience: "authenticated" },
+    ) as { sub: string };
+    expect(payload.sub).toBe("device-anna");
+  });
+
   it("espone il codice corrente alla console dell'evento", async () => {
     const event = await createEvent();
     const res = await request(http).get(`/events/${event.id}/code`);

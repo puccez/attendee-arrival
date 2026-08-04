@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://unpkg.com/@powersync/service-sync-rules@latest/schema/sync_rules.json
+config:
+  edition: 3
+
+streams:
+  # Lo stato del check-in dell'attendee, filtrato per device (sub del JWT).
+  # Il borsellino sale via uploadData -> API NestJS (la cucitura), non da qui.
+  my_check_ins:
+    auto_subscribe: true
+    query: |
+      SELECT event_id || ':' || device_id AS id,
+             event_id, device_id, attendee_name, result, updated_at
+      FROM check_ins
+      WHERE device_id = auth.user_id()

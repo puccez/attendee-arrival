@@ -66,9 +66,9 @@ function onScanned(payload: string) {
       scanMessage.value = "QR di un altro evento (back-to-back?): ignorato.";
       return;
     }
-    if (wallet.collect(c)) {
-      scanMessage.value = `Codice ${c} raccolto nel borsellino ✓`;
-    }
+    void wallet.collect(c).then((fresh) => {
+      if (fresh) scanMessage.value = `Codice ${c} raccolto nel borsellino ✓`;
+    });
   } catch {
     /* QR estraneo: ignora */
   }
@@ -80,7 +80,7 @@ function onScanned(payload: string) {
  */
 async function simulateScan() {
   const { code } = await api.get<{ code: string }>(`/events/${eventId}/code`);
-  if (wallet.collect(code)) {
+  if (await wallet.collect(code)) {
     scanMessage.value = `[simulazione] codice ${code} raccolto ✓`;
   } else {
     scanMessage.value =
@@ -89,7 +89,7 @@ async function simulateScan() {
 }
 
 function confirmArrival() {
-  wallet.markArrival({ confirmationTap: true, gpsInside: arrived.value });
+  void wallet.markArrival({ confirmationTap: true, gpsInside: arrived.value });
 }
 
 function haversineM(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
@@ -130,11 +130,7 @@ onUnmounted(() => {
   if (geoWatch !== undefined) navigator.geolocation.clearWatch(geoWatch);
 });
 
-const provenanceLabel = computed(() => {
-  const c = wallet.lastCheckIn.value;
-  if (!c) return null;
-  return c;
-});
+const provenanceLabel = wallet.lastCheckIn;
 </script>
 
 <template>
@@ -179,13 +175,15 @@ const provenanceLabel = computed(() => {
     </div>
 
     <div class="panel">
-      <h2>Il tuo borsellino</h2>
+      <h2>Il tuo borsellino <span class="muted" style="font-size:12px">(PowerSync)</span></h2>
       <p class="muted" style="font-size: 14px">
-        {{ wallet.codes.value.length }} codici raccolti ·
-        <span v-if="wallet.online.value">consegnati al server ✓</span>
-        <span v-else style="color: var(--warn)">
-          offline — restano qui e si consegnano appena torna la rete
+        <span v-if="wallet.pendingCodes.value.length > 0" style="color: var(--warn)">
+          {{ wallet.pendingCodes.value.length }} codici in attesa di consegna
+          {{ wallet.online.value ? "· consegna in corso…" : "· offline — partiranno appena torna la rete" }}
         </span>
+        <span v-else-if="provenanceLabel">borsellino consegnato ✓</span>
+        <span v-else>vuoto — scansiona il QR della console</span>
+        <span> · sync {{ wallet.online.value ? "connesso" : "disconnesso" }}</span>
       </p>
       <div v-if="provenanceLabel">
         <span

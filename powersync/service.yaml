@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://unpkg.com/@powersync/cli-schemas@latest/json-schema/service-config.json
+_type: cloud
+name: attendee-arrival
+region: eu
+
+replication:
+  connections:
+    - type: postgresql
+      # Connessione diretta (non-pooled): la logical replication non passa dal pooler.
+      uri: !env PS_DATABASE_URI
+      password:
+        secret: !env PS_DATABASE_PASSWORD
+      sslmode: verify-full
+
+client_auth:
+  # I token li firma la nostra API (HS256 col JWT secret Supabase, sub = deviceId):
+  # nessun login utente richiesto nella demo.
+  supabase: true
+  supabase_jwt_secret:
+    secret: !env PS_SUPABASE_JWT_SECRET

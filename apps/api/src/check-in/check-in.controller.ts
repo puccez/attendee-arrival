@@ -6,7 +6,9 @@ import {
   Inject,
   Param,
   Post,
+  ServiceUnavailableException,
 } from "@nestjs/common";
+import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { deriveRotatingCode } from "@attendee-arrival/core";
 import { CLOCK, type Clock } from "../clock.js";
@@ -77,6 +79,32 @@ export class CheckInController {
       code: deriveRotatingCode(event.seed, this.clock.now()),
       at: this.clock.now().toISOString(),
     };
+  }
+
+  /**
+   * Token per il sync PowerSync del borsellino: firmato HS256 col JWT
+   * secret Supabase, sub = deviceId. Il secret non lascia mai il server.
+   */
+  @Post("powersync-token")
+  powersyncToken(@Body() body: unknown) {
+    const parsed = z.object({ deviceId: z.string().min(1) }).safeParse(body);
+    if (!parsed.success) throw new BadRequestException(parsed.error.issues);
+    const secret = process.env.SUPABASE_JWT_SECRET;
+    const endpoint = process.env.POWERSYNC_URL;
+    if (!secret || !endpoint) {
+      throw new ServiceUnavailableException("PowerSync non configurato");
+    }
+    const token = jwt.sign(
+      { role: "authenticated" },
+      secret,
+      {
+        algorithm: "HS256",
+        subject: parsed.data.deviceId,
+        audience: "authenticated",
+        expiresIn: "12h",
+      },
+    );
+    return { token, endpoint };
   }
 
   @Post("events/:eventId/deliveries")

@@ -1,119 +1,88 @@
-import { useApi, type ApiCheckIn } from "./useApi";
-
-interface WalletCode {
-  value: string;
-  collectedAt: string;
-}
-
-interface WalletState {
-  codes: WalletCode[];
-  pendingFlags: { gpsInside: boolean; confirmationTap: boolean };
-}
+import { usePowerSync, useQuery, useStatus } from "@powersync/vue";
+import type { ApiCheckIn } from "./useApi";
+import { getAttendeeName, getDeviceId, setAttendeeName } from "../lib/device";
 
 /**
- * Il borsellino dell'attendee: raccoglie i Codici Rotanti in locale
- * (funziona offline — la raccolta è fotocamera, non rete) e li consegna
- * al server appena può. v1 su localStorage; il passaggio a PowerSync
- * mantiene questa stessa interfaccia.
+ * Il borsellino dell'attendee su PowerSync: i Codici Rotanti si raccolgono
+ * nella tabella locale wallet_items (funziona offline — la raccolta è
+ * fotocamera/radio, non rete); la coda di upload li consegna alla cucitura
+ * di verifica appena può. Lo stato etichettato torna giù dal sync stream
+ * check_ins. La riga consegnata scompare dal borsellino: è il "consegnato".
  */
 export function useWallet(eventId: string) {
-  const api = useApi();
-  const deviceId = useLocalStorage("device-id", () => crypto.randomUUID());
-  const attendeeName = useLocalStorage("attendee-name", () => "");
-  const storageKey = `wallet:${eventId}`;
+  const powersync = usePowerSync();
+  const status = useStatus();
 
-  const state = ref<WalletState>(
-    readJson<WalletState>(storageKey) ?? {
-      codes: [],
-      pendingFlags: { gpsInside: false, confirmationTap: false },
-    },
+  const deviceId = ref("");
+  const attendeeName = ref("");
+  onMounted(() => {
+    deviceId.value = getDeviceId();
+    attendeeName.value = getAttendeeName();
+  });
+  watch(attendeeName, (v) => setAttendeeName(v));
+
+  // Item ancora nel borsellino = in attesa di consegna.
+  const { data: pendingItems } = useQuery<{ value: string }>(
+    "SELECT value FROM wallet_items WHERE event_id = ? AND kind = 'code'",
+    [eventId],
   );
-  const lastCheckIn = ref<ApiCheckIn | null>(null);
-  const online = ref(true);
-  const pendingDelivery = ref(false);
 
-  function persist() {
-    localStorage.setItem(storageKey, JSON.stringify(state.value));
-  }
+  // Lo stato sincronizzato dal server (provenienza × qualità).
+  const { data: syncedRows } = useQuery<{ result: string }>(
+    "SELECT result FROM check_ins WHERE event_id = ? AND device_id = ?",
+    [eventId, deviceId],
+  );
+  const lastCheckIn = computed<ApiCheckIn | null>(() => {
+    const raw = syncedRows.value[0]?.result;
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as ApiCheckIn;
+    } catch {
+      return null;
+    }
+  });
 
-  function collect(codeValue: string) {
-    if (state.value.codes.some((c) => c.value === codeValue)) return false;
-    state.value.codes.push({
-      value: codeValue,
-      collectedAt: new Date().toISOString(),
-    });
-    persist();
-    void flush();
+  async function collect(codeValue: string): Promise<boolean> {
+    const db = powersync.value;
+    const inWallet = await db.getOptional(
+      "SELECT id FROM wallet_items WHERE event_id = ? AND value = ?",
+      [eventId, codeValue],
+    );
+    if (inWallet) return false;
+    await db.execute(
+      `INSERT INTO wallet_items (id, event_id, kind, value, collected_at, attendee_name)
+       VALUES (uuid(), ?, 'code', ?, ?, ?)`,
+      [eventId, codeValue, new Date().toISOString(), attendeeName.value || null],
+    );
     return true;
   }
 
-  function markArrival(opts: { gpsInside?: boolean; confirmationTap?: boolean }) {
-    state.value.pendingFlags.gpsInside ||= opts.gpsInside === true;
-    state.value.pendingFlags.confirmationTap ||= opts.confirmationTap === true;
-    persist();
-    void flush();
+  async function markArrival(opts: {
+    gpsInside?: boolean;
+    confirmationTap?: boolean;
+  }): Promise<void> {
+    await powersync.value.execute(
+      `INSERT INTO wallet_items (id, event_id, kind, gps_inside, confirmation_tap, attendee_name)
+       VALUES (uuid(), ?, 'arrival', ?, ?, ?)`,
+      [
+        eventId,
+        opts.gpsInside ? 1 : 0,
+        opts.confirmationTap ? 1 : 0,
+        attendeeName.value || null,
+      ],
+    );
   }
-
-  /** Consegna tutto il borsellino: il server accumula e ri-valuta l'unione. */
-  async function flush() {
-    if (pendingDelivery.value) return;
-    pendingDelivery.value = true;
-    try {
-      lastCheckIn.value = await api.post<ApiCheckIn>(
-        `/events/${eventId}/deliveries`,
-        {
-          deviceId: deviceId.value,
-          attendeeName: attendeeName.value || undefined,
-          codes: state.value.codes,
-          gps: state.value.pendingFlags.gpsInside
-            ? { insideGeofence: true }
-            : undefined,
-          confirmationTap: state.value.pendingFlags.confirmationTap || undefined,
-        },
-      );
-      online.value = true;
-    } catch {
-      online.value = false; // resta nel borsellino: riproveremo
-    } finally {
-      pendingDelivery.value = false;
-    }
-  }
-
-  let retryTimer: ReturnType<typeof setInterval> | undefined;
-  onMounted(() => {
-    window.addEventListener("online", flush);
-    retryTimer = setInterval(() => {
-      if (!online.value && state.value.codes.length > 0) void flush();
-    }, 4000);
-  });
-  onUnmounted(() => {
-    window.removeEventListener("online", flush);
-    if (retryTimer) clearInterval(retryTimer);
-  });
 
   return {
     deviceId,
     attendeeName,
-    codes: computed(() => state.value.codes),
+    pendingCodes: computed(() => pendingItems.value.map((i) => i.value)),
     lastCheckIn,
-    online,
+    online: computed(() => status.value.connected),
+    uploading: computed(
+      () => status.value.dataFlowStatus?.uploading === true,
+    ),
     collect,
     markArrival,
-    flush,
   };
-}
-
-function readJson<T>(key: string): T | null {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : null;
-  } catch {
-    return null;
-  }
-}
-
-function useLocalStorage(key: string, init: () => string) {
-  const value = ref(localStorage.getItem(key) ?? init());
-  watch(value, (v) => localStorage.setItem(key, v), { immediate: true });
-  return value;
 }
