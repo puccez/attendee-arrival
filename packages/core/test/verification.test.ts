@@ -215,6 +215,33 @@ describe("cucitura di verifica: consegna di codici → check-in etichettato", ()
     expect(checkIn.quality.longestGapMinutes).toBe(17); // il buco è visibile
   });
 
+  it("una sessione aperta tardi non cancella le ore prima", () => {
+    // Caso vero, serata del 4 agosto: l'app viene riavviata a metà evento e
+    // apre la sua prima sessione alle 22:20. I codici delle due ore
+    // precedenti erano già stati raccolti e verificati — non sono sospetti,
+    // sono solo anteriori a quando il telefono ha saputo di essere in region.
+    // Solo un'uscita *dichiarata* taglia; l'ignoranza non taglia niente.
+    const at = (iso: string) => new Date(iso);
+    const times = [
+      at("2026-08-07T19:48:00Z"),
+      at("2026-08-07T19:53:00Z"),
+      at("2026-08-07T22:20:30Z"),
+      at("2026-08-07T22:22:30Z"),
+    ];
+    const checkIn = evaluateDelivery({
+      event: { ...event, endsAt: at("2026-08-08T01:00:00Z") },
+      deviceId: "device-riavviato",
+      codes: times.map((t) => ({
+        value: deriveRotatingCode(SEED, t),
+        collectedAt: t,
+      })),
+      sessions: [{ startedAt: at("2026-08-07T22:20:11Z") }], // aperta, tardi
+      deliveredAt: at("2026-08-07T22:23:00Z"),
+    });
+
+    expect(checkIn.quality.coverageMinutes).toBe(17); // 5 + 10 (tetto) + 2
+  });
+
   it("una sessione dichiarata lunga non allunga la copertura: contano i codici", () => {
     // Il client non è fidato. Dichiara tre ore di presenza con un codice solo:
     // la sessione delimita, i codici misurano.

@@ -114,11 +114,23 @@ function matchesWindow(seed: string, code: CollectedCode): boolean {
   );
 }
 
-function containsInstant(session: PresenceSession, at: number): boolean {
-  return (
-    at >= session.startedAt.getTime() &&
-    at <= (session.endedAt?.getTime() ?? Number.POSITIVE_INFINITY)
-  );
+/**
+ * C'è un'uscita dichiarata fra questi due codici?
+ *
+ * Solo la *fine* di una sessione taglia. Non l'appartenenza: un codice fuori
+ * da ogni sessione dichiarata non è un codice sospetto, è un codice raccolto
+ * quando il telefono non sapeva ancora di essere nella region — succede a ogni
+ * riavvio dell'app, e non deve cancellare le ore precedenti.
+ */
+function exitBetween(
+  sessions: PresenceSession[],
+  from: number,
+  to: number,
+): boolean {
+  return sessions.some((s) => {
+    const end = s.endedAt?.getTime();
+    return end !== undefined && end > from && end < to;
+  });
 }
 
 /**
@@ -131,11 +143,10 @@ function containsInstant(session: PresenceSession, at: number): boolean {
  * 1. **Non serve credere al client.** I codici li verifica il server, e il
  *    tetto vale comunque. Un telefono che tace non guadagna niente: chi esce
  *    per un'ora si vede accreditare al massimo un tetto, dichiari o no.
- * 2. **Le sessioni possono solo tagliare.** Se due codici consecutivi non
- *    stanno nella stessa sessione dichiarata, in mezzo c'è un'uscita e
- *    l'intervallo non si accredita affatto. Dichiarare allunga la precisione,
- *    mai la copertura — che è ciò che rende sicuro accettarle da un client
- *    non fidato.
+ * 2. **Le sessioni possono solo tagliare.** Un'uscita dichiarata fra due
+ *    codici azzera quell'intervallo. Nient'altro: dichiarare allunga la
+ *    precisione, mai la copertura — che è ciò che rende sicuro accettarle da
+ *    un client non fidato.
  *
  * Il numero che ne esce è un limite inferiore per costruzione: si legge
  * insieme a `longestGapMinutes`, che dice quanto è ruvido il campionamento.
@@ -153,11 +164,7 @@ function coverageMinutes(
   for (let i = 1; i < times.length; i++) {
     const from = times[i - 1]!;
     const to = times[i]!;
-    const split =
-      sessions !== undefined &&
-      sessions.length > 0 &&
-      !sessions.some((s) => containsInstant(s, from) && containsInstant(s, to));
-    if (split) continue;
+    if (sessions !== undefined && exitBetween(sessions, from, to)) continue;
     credited += Math.min(to - from, maxCreditedGapMs);
   }
   return Math.round(credited / 60_000);
