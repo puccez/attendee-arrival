@@ -47,7 +47,11 @@ export class PgClient {
            result jsonb,
            updated_at timestamptz NOT NULL,
            PRIMARY KEY (event_id, device_id)
-         );`,
+         );
+         -- Le tabelle create prima delle sessioni di presenza non hanno la
+         -- colonna: CREATE TABLE IF NOT EXISTS non la aggiungerebbe mai.
+         ALTER TABLE check_ins
+           ADD COLUMN IF NOT EXISTS sessions jsonb NOT NULL DEFAULT '[]';`,
       )
       .then(() => undefined);
     return this.ready;
@@ -98,7 +102,8 @@ export class PgCheckInsStore implements CheckInsStore {
   async load(eventId: string, deviceId: string): Promise<AttendeeState | null> {
     await this.db.ensureSchema();
     const { rows } = await this.db.pool.query(
-      `SELECT attendee_name, codes, host_attested, confirmation_tap, gps_inside
+      `SELECT attendee_name, codes, sessions, host_attested, confirmation_tap,
+              gps_inside
        FROM check_ins WHERE event_id = $1 AND device_id = $2`,
       [eventId, deviceId],
     );
@@ -109,6 +114,12 @@ export class PgCheckInsStore implements CheckInsStore {
       codes: (r.codes as { value: string; collectedAt: string }[]).map((c) => ({
         value: c.value,
         collectedAt: new Date(c.collectedAt),
+      })),
+      sessions: (
+        (r.sessions ?? []) as { startedAt: string; endedAt?: string }[]
+      ).map((s) => ({
+        startedAt: new Date(s.startedAt),
+        endedAt: s.endedAt ? new Date(s.endedAt) : undefined,
       })),
       hostAttested: r.host_attested,
       confirmationTap: r.confirmation_tap,
@@ -125,12 +136,13 @@ export class PgCheckInsStore implements CheckInsStore {
     await this.db.ensureSchema();
     await this.db.pool.query(
       `INSERT INTO check_ins
-         (event_id, device_id, attendee_name, codes, host_attested,
+         (event_id, device_id, attendee_name, codes, sessions, host_attested,
           confirmation_tap, gps_inside, result, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (event_id, device_id) DO UPDATE SET
          attendee_name = EXCLUDED.attendee_name,
          codes = EXCLUDED.codes,
+         sessions = EXCLUDED.sessions,
          host_attested = EXCLUDED.host_attested,
          confirmation_tap = EXCLUDED.confirmation_tap,
          gps_inside = EXCLUDED.gps_inside,
@@ -141,6 +153,7 @@ export class PgCheckInsStore implements CheckInsStore {
         deviceId,
         state.attendeeName ?? null,
         JSON.stringify(state.codes),
+        JSON.stringify(state.sessions),
         state.hostAttested,
         state.confirmationTap,
         state.gpsInsideSeen,

@@ -199,7 +199,7 @@ const provenanceLabel = wallet.lastCheckIn;
         </span>
         <span style="font-size: 14px; margin-left: 8px">
           {{ provenanceLabel.quality.validCodes }} codici validi ·
-          {{ provenanceLabel.quality.coverageMinutes }} min di permanenza
+          {{ provenanceLabel.quality.coverageMinutes }} min di copertura
           {{ provenanceLabel.accredited ? "· accreditato ✓" : "· non accreditato" }}
         </span>
       </div>

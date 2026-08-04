@@ -26,6 +26,13 @@ export interface DeliveryPayload {
   deviceId: string;
   attendeeName?: string;
   codes: { value: string; collectedAt: string }[];
+  /**
+   * Le sessioni di presenza: ingresso e uscita dalla region del beacon.
+   * Delimitano, non provano — il server credita ogni sessione per i minuti
+   * dei codici che contiene. Si mandano tutte a ogni consegna: il server le
+   * unisce per istante d'apertura, quindi rispedirle è idempotente.
+   */
+  sessions?: { startedAt: string; endedAt?: string }[];
   /** Contesto, mai prova: informa la UX dell'Arrivo, non la provenienza. */
   gps?: { insideGeofence: boolean };
   confirmationTap?: boolean;

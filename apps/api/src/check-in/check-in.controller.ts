@@ -25,6 +25,14 @@ const deliverySchema = z.object({
       collectedAt: z.coerce.date(),
     }),
   ),
+  sessions: z
+    .array(
+      z.object({
+        startedAt: z.coerce.date(),
+        endedAt: z.coerce.date().optional(),
+      }),
+    )
+    .optional(),
   gps: z.object({ insideGeofence: z.boolean() }).optional(),
   hostAttested: z.boolean().optional(),
   confirmationTap: z.boolean().optional(),

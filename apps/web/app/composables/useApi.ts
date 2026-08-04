@@ -24,6 +24,7 @@ export interface ApiCheckIn {
   quality: {
     validCodes: number;
     coverageMinutes: number;
+    longestGapMinutes: number;
     tappedNotification: boolean;
   };
   updatedAt: string;

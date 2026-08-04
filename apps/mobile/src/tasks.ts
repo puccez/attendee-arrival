@@ -6,10 +6,12 @@ import { BEACON_UUID } from "./lib/config";
 import { presentArrival } from "./lib/notifications";
 import { normalizeSighting } from "./beacon/normalize";
 import {
+  closePresenceSession,
   collectCode,
   flush,
   getDeviceId,
   markArrival,
+  openPresenceSession,
   readSetting,
 } from "./wallet/wallet";
 
@@ -86,6 +88,36 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
     // All'uscita si campiona un'ultima volta: è l'altro estremo del dwell.
     await handleArrival({ gpsInside: false, notify: false });
   }
+});
+
+/*
+ * La region del beacon delimita la presenza.
+ *
+ * Un beacon non-connettibile non può dirci quando te ne vai: non ti vede
+ * nemmeno. Ma CoreLocation sì — `didExitRegion` è l'unico segnale di fine
+ * presenza che abbiamo, l'equivalente del disconnect BLE. Senza queste due
+ * righe la copertura misurerebbe l'arco fra il primo e l'ultimo codice, e
+ * conterebbe come permanenza anche il tempo passato dall'altra parte della
+ * città.
+ *
+ * Come i task, si registrano qui e non in React: gli ingressi e le uscite
+ * arrivano quando l'interfaccia non è viva.
+ */
+WemeetBeacon?.addListener("onRegionEnter", () => {
+  void (async () => {
+    const eventId = await readSetting(SETTING_EVENT_ID);
+    if (eventId) await openPresenceSession(eventId);
+  })();
+});
+
+WemeetBeacon?.addListener("onRegionExit", () => {
+  void (async () => {
+    const eventId = await readSetting(SETTING_EVENT_ID);
+    if (!eventId) return;
+    await closePresenceSession(eventId);
+    // La chiusura vale quanto la raccolta: si prova a consegnarla subito.
+    await flush(await getDeviceId()).catch(() => {});
+  })();
 });
 
 /** Attiva il geofence dell'evento: è ciò che sveglia l'app all'arrivo. */

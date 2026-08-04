@@ -133,6 +133,7 @@ onUnmounted(() => timers.forEach(clearInterval));
             <th>Provenienza</th>
             <th>Codici</th>
             <th>Copertura</th>
+            <th>Buco max</th>
             <th>Tap</th>
             <th>Accreditato</th>
             <th></th>
@@ -150,6 +151,16 @@ onUnmounted(() => timers.forEach(clearInterval));
             </td>
             <td>{{ c.quality.validCodes }}</td>
             <td>{{ c.quality.coverageMinutes }} min</td>
+            <td>
+              {{ c.quality.longestGapMinutes }} min
+              <span
+                v-if="c.quality.longestGapMinutes >= 10"
+                class="muted"
+                style="font-size: 12px"
+                title="Fra due codici è passato molto tempo: può essersi allontanato, o può essere il telefono che dormiva."
+                >⚠</span
+              >
+            </td>
             <td>{{ c.quality.tappedNotification ? "✓" : "—" }}</td>
             <td>{{ c.accredited ? "✓" : "✗" }}</td>
             <td>

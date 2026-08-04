@@ -16,8 +16,10 @@ export type Provenance = "machine" | "human" | "machine+human" | "none";
 export interface Quality {
   /** Codici validi distinti: una finestra di 30 s = un codice. */
   validCodes: number;
-  /** Arco di tempo coperto dai codici: il dwell opportunistico. */
+  /** Somma delle sessioni di presenza: il tempo passato fuori non entra. */
   coverageMinutes: number;
+  /** Il buco più lungo fra due codici: rende visibile chi esce e rientra. */
+  longestGapMinutes: number;
   /** Tap sulla notifica one-tap: arricchisce la qualità, mai la provenienza. */
   tappedNotification: boolean;
 }

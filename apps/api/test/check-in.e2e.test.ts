@@ -116,6 +116,41 @@ describe("POST /events/:id/deliveries — la cucitura via HTTP", () => {
     expect(list.body[0].quality.validCodes).toBe(2);
   });
 
+  it("le sessioni si accumulano fra consegne: l'uscita chiude, il rientro riapre", async () => {
+    // Prima consegna: sessione ancora aperta. Seconda: la stessa sessione
+    // arriva chiusa, più una nuova dopo il rientro. I minuti fuori non contano.
+    const event = await createEvent();
+    const at = (iso: string) => new Date(iso);
+    const code = (t: Date) => ({
+      value: deriveRotatingCode(event.seed, t),
+      collectedAt: t.toISOString(),
+    });
+
+    const first = await request(http)
+      .post(`/events/${event.id}/deliveries`)
+      .send({
+        deviceId: "device-emanuele",
+        codes: [code(at("2026-08-07T19:48:00Z")), code(at("2026-08-07T19:55:00Z"))],
+        sessions: [{ startedAt: "2026-08-07T19:47:00Z" }],
+      });
+    expect(first.body.quality.coverageMinutes).toBe(7);
+
+    const second = await request(http)
+      .post(`/events/${event.id}/deliveries`)
+      .send({
+        deviceId: "device-emanuele",
+        codes: [code(at("2026-08-07T20:12:00Z")), code(at("2026-08-07T20:14:00Z"))],
+        sessions: [
+          { startedAt: "2026-08-07T19:47:00Z", endedAt: "2026-08-07T19:56:00Z" },
+          { startedAt: "2026-08-07T20:11:00Z" },
+        ],
+      });
+
+    expect(second.body.quality.validCodes).toBe(4);
+    expect(second.body.quality.coverageMinutes).toBe(9); // 7 + 2, non 26
+    expect(second.body.quality.longestGapMinutes).toBe(17);
+  });
+
   it("una riconsegna tardiva dello stesso codice non cancella la raccolta valida", async () => {
     const event = await createEvent();
     const collectedAt = new Date("2026-08-07T19:42:10Z");

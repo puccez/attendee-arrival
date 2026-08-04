@@ -46,6 +46,17 @@ async function db(): Promise<SQLite.SQLiteDatabase> {
     CREATE UNIQUE INDEX IF NOT EXISTS wallet_code_unique
       ON wallet_items (event_id, value) WHERE kind = 'code';
 
+    -- Le sessioni di presenza: aperte all'ingresso nella region del beacon,
+    -- chiuse all'uscita. Sono l'equivalente del disconnect che un beacon
+    -- non-connettibile non può darci, e servono a non contare come permanenza
+    -- il tempo passato altrove.
+    CREATE TABLE IF NOT EXISTS presence_sessions (
+      event_id TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      PRIMARY KEY (event_id, started_at)
+    );
+
     CREATE TABLE IF NOT EXISTS check_ins (
       event_id TEXT PRIMARY KEY NOT NULL,
       result TEXT NOT NULL,
@@ -114,6 +125,12 @@ export async function collectCode(
   value: string,
   collectedAt: Date = new Date(),
 ): Promise<boolean> {
+  // Sentire un codice è già prova di presenza: se nessuna sessione è aperta
+  // — ingresso nella region perso, o rientro senza risveglio — se ne apre una
+  // qui. Senza questa rete di sicurezza un codice orfano varrebbe un istante
+  // invece di un intervallo.
+  await openPresenceSession(eventId, collectedAt);
+
   const result = await (
     await db()
   ).runAsync(
@@ -145,6 +162,62 @@ export async function markArrival(
     context.gpsInside ? 1 : 0,
     context.confirmationTap ? 1 : 0,
   );
+}
+
+/* --------------------------------------------------- sessioni di presenza */
+
+/**
+ * Ingresso nella region: apre una sessione, se non ce n'è già una aperta.
+ * iOS rivaluta lo stato della region a ogni accensione dello schermo e può
+ * emettere più ingressi di fila — riaprire azzererebbe la sessione in corso.
+ */
+export async function openPresenceSession(
+  eventId: string,
+  at: Date = new Date(),
+): Promise<void> {
+  const open = await (
+    await db()
+  ).getFirstAsync<{ started_at: string }>(
+    "SELECT started_at FROM presence_sessions WHERE event_id = ? AND ended_at IS NULL",
+    eventId,
+  );
+  if (open) return;
+  await (
+    await db()
+  ).runAsync(
+    "INSERT OR IGNORE INTO presence_sessions (event_id, started_at) VALUES (?, ?)",
+    eventId,
+    at.toISOString(),
+  );
+}
+
+/** Uscita dalla region: chiude la sessione aperta. Rientrare ne apre un'altra. */
+export async function closePresenceSession(
+  eventId: string,
+  at: Date = new Date(),
+): Promise<void> {
+  await (
+    await db()
+  ).runAsync(
+    "UPDATE presence_sessions SET ended_at = ? WHERE event_id = ? AND ended_at IS NULL",
+    at.toISOString(),
+    eventId,
+  );
+}
+
+export async function presenceSessions(
+  eventId: string,
+): Promise<{ startedAt: string; endedAt?: string }[]> {
+  const rows = await (
+    await db()
+  ).getAllAsync<{ started_at: string; ended_at: string | null }>(
+    "SELECT started_at, ended_at FROM presence_sessions WHERE event_id = ? ORDER BY started_at",
+    eventId,
+  );
+  return rows.map((r) => ({
+    startedAt: r.started_at,
+    ...(r.ended_at ? { endedAt: r.ended_at } : {}),
+  }));
 }
 
 export async function setAttendeeName(name: string): Promise<void> {
@@ -244,6 +317,11 @@ export async function flush(deviceId: string): Promise<FlushReport> {
 
   const now = new Date().toISOString();
   for (const delivery of groupIntoDeliveries(items, deviceId)) {
+    // Le sessioni non sono item di borsellino: non si consumano, si
+    // rispediscono intere a ogni consegna e il server le unisce.
+    const sessions = await presenceSessions(delivery.eventId);
+    if (sessions.length > 0) delivery.payload.sessions = sessions;
+
     let status: number;
     let checkIn: ApiCheckIn | null = null;
     try {

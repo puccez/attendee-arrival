@@ -1,4 +1,4 @@
-import type { CollectedCode } from "@attendee-arrival/core";
+import type { CollectedCode, PresenceSession } from "@attendee-arrival/core";
 import type { AttendeeCheckIn } from "../check-in/check-ins.service.js";
 import type { WeMeetEvent } from "../events/events.service.js";
 
@@ -14,6 +14,8 @@ export interface EventsStore {
 export interface AttendeeState {
   attendeeName?: string;
   codes: CollectedCode[];
+  /** Le sessioni di presenza viste finora, unite fra una consegna e l'altra. */
+  sessions: PresenceSession[];
   hostAttested: boolean;
   confirmationTap: boolean;
   gpsInsideSeen: boolean;

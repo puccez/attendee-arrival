@@ -156,6 +156,77 @@ describe("cucitura di verifica: consegna di codici → check-in etichettato", ()
     expect(checkIn.quality.validCodes).toBe(1);
   });
 
+  it("esce e rientra: i minuti fuori non entrano nella copertura", () => {
+    // Il caso osservato dal vivo: 7 minuti al venue, 17 fuori, poi rientro.
+    // L'arco fra primo e ultimo codice direbbe 24 — ma 17 li ha passati a
+    // 400 metri, e l'uscita dalla region lo dice.
+    const at = (iso: string) => new Date(iso);
+    const times = [
+      at("2026-08-07T19:48:00Z"),
+      at("2026-08-07T19:51:00Z"),
+      at("2026-08-07T19:55:00Z"),
+      at("2026-08-07T20:12:00Z"),
+      at("2026-08-07T20:14:00Z"),
+    ];
+    const checkIn = evaluateDelivery({
+      event,
+      deviceId: "device-emanuele",
+      codes: times.map((t) => ({
+        value: deriveRotatingCode(SEED, t),
+        collectedAt: t,
+      })),
+      sessions: [
+        { startedAt: at("2026-08-07T19:47:00Z"), endedAt: at("2026-08-07T19:56:00Z") },
+        { startedAt: at("2026-08-07T20:11:00Z") }, // ancora aperta
+      ],
+      deliveredAt: at("2026-08-07T20:14:05Z"),
+    });
+
+    expect(checkIn.quality.validCodes).toBe(5);
+    expect(checkIn.quality.coverageMinutes).toBe(9); // 7 + 2, non 26
+    expect(checkIn.quality.longestGapMinutes).toBe(17); // il buco è visibile
+  });
+
+  it("una sessione dichiarata lunga non allunga la copertura: contano i codici", () => {
+    // Il client non è fidato. Dichiara tre ore di presenza con un codice solo:
+    // la sessione delimita, i codici misurano.
+    const collectedAt = new Date("2026-08-07T19:42:10Z");
+    const checkIn = evaluateDelivery({
+      event,
+      deviceId: "device-bugiardo",
+      codes: [{ value: deriveRotatingCode(SEED, collectedAt), collectedAt }],
+      sessions: [
+        {
+          startedAt: new Date("2026-08-07T19:00:00Z"),
+          endedAt: new Date("2026-08-07T22:00:00Z"),
+        },
+      ],
+      deliveredAt: new Date("2026-08-07T22:00:05Z"),
+    });
+
+    expect(checkIn.accredited).toBe(true);
+    expect(checkIn.quality.coverageMinutes).toBe(0);
+  });
+
+  it("senza sessioni la copertura resta l'arco, ma il buco è dichiarato", () => {
+    // Il client web non ha region BLE: nessuna sessione da consegnare.
+    // Il numero degrada a un limite superiore, e lo si dice.
+    const at = (iso: string) => new Date(iso);
+    const times = [at("2026-08-07T19:48:00Z"), at("2026-08-07T20:12:00Z")];
+    const checkIn = evaluateDelivery({
+      event,
+      deviceId: "device-web",
+      codes: times.map((t) => ({
+        value: deriveRotatingCode(SEED, t),
+        collectedAt: t,
+      })),
+      deliveredAt: at("2026-08-07T20:12:05Z"),
+    });
+
+    expect(checkIn.quality.coverageMinutes).toBe(24);
+    expect(checkIn.quality.longestGapMinutes).toBe(24);
+  });
+
   it("il GPS da solo non accredita mai: provenienza 'none' anche dentro il geofence", () => {
     // Spoofing GPS irrilevante per costruzione: senza codici non esisti.
     const checkIn = evaluateDelivery({

@@ -7,6 +7,7 @@ export type {
   CollectedCode,
   Delivery,
   EventWindow,
+  PresenceSession,
   Provenance,
   Quality,
   VerificationConfig,
