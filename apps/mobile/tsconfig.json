@@ -10,5 +10,7 @@
     }
   },
   "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
-  "exclude": ["node_modules", "ios", "android"]
+  // I test girano su node, non su React Native: hanno il loro programma
+  // (test/tsconfig.json) con i tipi di node, che qui non devono entrare.
+  "exclude": ["node_modules", "ios", "android", "test"]
 }

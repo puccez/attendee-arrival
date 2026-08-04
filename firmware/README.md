@@ -47,10 +47,18 @@ identica su ESP32 e su host per i test.
 ### PlatformIO (consigliata: installa tutto da sé)
 
 ```bash
-pip install --user platformio        # una volta
-cd firmware
+python3 -m venv ~/.platformio-venv                 # una volta
+~/.platformio-venv/bin/pip install platformio      # (su Arch/Debian recenti
+export PATH="$HOME/.platformio-venv/bin:$PATH"     #  pip non installa
+cd firmware                                        #  fuori da un venv)
 pio run -t upload -t monitor
 ```
+
+**Verificato**: il firmware compila pulito, zero warning, con
+`espressif32 7.0.1` + `NimBLE-Arduino 2.5.1` (versioni pinnate in
+`platformio.ini`). Occupazione: **RAM 17,1%**, **flash 32,5%** con lo
+schema di partizioni `huge_app` — niente OTA, tutto lo spazio
+all'applicazione.
 
 ### Arduino IDE / arduino-cli
 

@@ -1,0 +1,14 @@
+{
+  // I test girano su node (`node --test`), non dentro React Native: da qui
+  // si tocca solo la logica pura, quella che non importa niente di RN.
+  // Tenere i due programmi separati è anche il modo di accorgersi se un
+  // modulo "puro" smette di esserlo.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "lib": ["ES2023"],
+    "noEmit": true
+  },
+  "include": ["./**/*.ts", "../src/lib/**/*.ts", "../src/beacon/normalize.ts"],
+  "exclude": []
+}

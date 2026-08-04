@@ -1,6 +1,6 @@
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
-import { PermissionsAndroid, Platform } from "react-native";
+import { PermissionsAndroid, Platform, type Permission } from "react-native";
 
 /**
  * I permessi del canale radio, chiesti nell'ordine che i sistemi accettano.
@@ -32,16 +32,15 @@ export async function requestBeaconPermissions(): Promise<PermissionReport> {
   if (Platform.OS === "android") {
     // Android 12+: la scansione BLE non richiede più la posizione, purché
     // si dichiari `neverForLocation` (lo fa il manifest del modulo).
-    const wanted: string[] = [];
-    if (Number(Platform.Version) >= 31) {
-      wanted.push("android.permission.BLUETOOTH_SCAN");
-    } else {
-      wanted.push(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
-    }
-    const granted = await PermissionsAndroid.requestMultiple(
-      wanted as Parameters<typeof PermissionsAndroid.requestMultiple>[0],
+    const wanted: Permission[] = [
+      Number(Platform.Version) >= 31
+        ? PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN
+        : PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+    ];
+    const granted = await PermissionsAndroid.requestMultiple(wanted);
+    report.radio = wanted.every(
+      (permission) => granted[permission] === PermissionsAndroid.RESULTS.GRANTED,
     );
-    report.radio = wanted.every((permission) => granted[permission] === "granted");
   }
 
   // La posizione serve solo al risveglio (geofence e, su iOS, region
@@ -66,15 +65,10 @@ export async function currentPermissions(): Promise<PermissionReport> {
   const background = await Location.getBackgroundPermissionsAsync();
 
   let radio = foreground.granted;
-  if (Platform.OS === "android") {
-    radio =
-      Number(Platform.Version) >= 31
-        ? await PermissionsAndroid.check(
-            "android.permission.BLUETOOTH_SCAN" as Parameters<
-              typeof PermissionsAndroid.check
-            >[0],
-          )
-        : foreground.granted;
+  if (Platform.OS === "android" && Number(Platform.Version) >= 31) {
+    radio = await PermissionsAndroid.check(
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+    );
   }
 
   return {

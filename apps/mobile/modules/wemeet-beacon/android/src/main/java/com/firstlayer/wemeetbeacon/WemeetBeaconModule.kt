@@ -14,11 +14,23 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Base64
 import androidx.core.content.ContextCompat
+import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.records.Field
+import expo.modules.kotlin.records.Record
 import java.nio.ByteBuffer
 import java.util.UUID
+
+/** Il testo della notifica di arrivo e dove porta il tap. */
+class MonitoringOptions : Record {
+  @Field val title: String = "Sei arrivato"
+
+  @Field val body: String = "Tocca per confermare la presenza"
+
+  @Field val deepLink: String = ""
+}
 
 /**
  * Il canale radio su Android: scansione diretta dei frame iBeacon.
@@ -64,7 +76,7 @@ class WemeetBeaconModule : Module() {
 
     AsyncFunction("startRangingAsync") { uuid: String ->
       val scanner = adapter()?.bluetoothLeScanner
-        ?: throw Exceptions.MissingPermissions("Bluetooth non disponibile")
+        ?: throw CodedException("Bluetooth non disponibile o spento")
       stopForegroundScan()
 
       val callback = object : ScanCallback() {
@@ -84,15 +96,20 @@ class WemeetBeaconModule : Module() {
       stopForegroundScan()
     }
 
-    AsyncFunction("startMonitoringAsync") { uuid: String, options: Map<String, Any?> ->
+    AsyncFunction("startMonitoringAsync") { uuid: String, options: MonitoringOptions ->
       val scanner = adapter()?.bluetoothLeScanner
-        ?: throw Exceptions.MissingPermissions("Bluetooth non disponibile")
+        ?: throw CodedException("Bluetooth non disponibile o spento")
+      // La scansione via PendingIntent — cioè il risveglio ad app chiusa —
+      // esiste solo da Android 8. Sotto, resta l'ascolto in foreground.
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+        throw CodedException("Il risveglio in prossimità richiede Android 8 o superiore")
+      }
 
       BeaconStore.rememberNotification(
         context,
-        options["title"] as? String ?: "Sei arrivato",
-        options["body"] as? String ?: "Tocca per confermare la presenza",
-        options["deepLink"] as? String ?: "",
+        options.title,
+        options.body,
+        options.deepLink,
       )
 
       stopBackgroundScan()
@@ -204,6 +221,7 @@ class WemeetBeaconModule : Module() {
   private fun stopBackgroundScan() {
     val pending = backgroundIntent ?: return
     backgroundIntent = null
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     try {
       adapter()?.bluetoothLeScanner?.stopScan(pending)
     } catch (_: Exception) {

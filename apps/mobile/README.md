@@ -72,12 +72,26 @@ console host) e digita le sei cifre nel campo "canale ottico". Il check-in
 che ne esce è indistinguibile da quello radio — il server non sa da quale
 canale è arrivato il codice, ed è il punto.
 
-## Test
+## Test e stato della verifica
 
 ```bash
 npm test        # logica pura: frame iBeacon, normalizzazione, consegne
 npm run typecheck
+npx expo prebuild --platform android --clean
 ```
+
+**Verificato senza device**: `npm install` risolve (Expo 57, RN 0.86.2,
+React 19.2.3), il typecheck è pulito su due programmi separati — l'app
+(React Native) e i test (node) — i 12 test passano, e `expo prebuild`
+genera il progetto Android senza warning, con `wemeet-beacon` correttamente
+autolinkato e tutti i permessi nel manifest.
+
+**Non ancora verificato**: la compilazione Gradle del Kotlin e quella Xcode
+dello Swift. Servono JDK + Android SDK + NDK (~6 GB) e macOS: al primo
+`expo run:android` può saltare fuori qualche divergenza nell'API nativa.
+Il codice usa i pattern documentati di Expo Modules (`Record` per gli
+argomenti strutturati, `CodedException`/`GenericException` per gli errori)
+proprio per ridurre quella superficie.
 
 I moduli sotto `src/lib/` e `src/beacon/normalize.ts` non importano niente
 di React Native apposta: si testano con `node --test`, senza device né

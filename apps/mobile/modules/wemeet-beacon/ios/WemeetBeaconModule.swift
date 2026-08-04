@@ -1,6 +1,12 @@
 import CoreLocation
 import ExpoModulesCore
 
+internal final class InvalidUuidException: GenericException<String> {
+  override var reason: String {
+    "UUID di prossimità non valido: \(param)"
+  }
+}
+
 /**
  iOS non consegna gli annunci iBeacon a CoreBluetooth: li riserva a
  CoreLocation. Il canale radio su iPhone passa quindi da qui.
@@ -72,7 +78,7 @@ public class WemeetBeaconModule: Module {
 
     AsyncFunction("startRangingAsync") { (uuid: String) in
       guard let parsed = UUID(uuidString: uuid) else {
-        throw Exception(name: "InvalidUUID", description: "UUID non valido: \(uuid)")
+        throw InvalidUuidException(uuid)
       }
       DispatchQueue.main.async { [weak self] in
         guard let self, let manager = self.manager else { return }
@@ -91,7 +97,7 @@ public class WemeetBeaconModule: Module {
 
     AsyncFunction("startMonitoringAsync") { (uuid: String, _: [String: Any]) in
       guard let parsed = UUID(uuidString: uuid) else {
-        throw Exception(name: "InvalidUUID", description: "UUID non valido: \(uuid)")
+        throw InvalidUuidException(uuid)
       }
       DispatchQueue.main.async { [weak self] in
         guard let self, let manager = self.manager else { return }
