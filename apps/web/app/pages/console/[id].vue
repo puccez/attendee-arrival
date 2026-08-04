@@ -150,7 +150,11 @@ onUnmounted(() => timers.forEach(clearInterval));
               }}</span>
             </td>
             <td>{{ c.quality.validCodes }}</td>
-            <td>{{ c.quality.coverageMinutes }} min</td>
+            <td
+              title="Tempo campionato: gli intervalli fra un codice e il successivo, accreditati al massimo 10 minuti ciascuno. È un limite inferiore — mai più di quanto il telefono abbia davvero sentito."
+            >
+              {{ c.quality.coverageMinutes }} min
+            </td>
             <td>
               {{ c.quality.longestGapMinutes }} min
               <span

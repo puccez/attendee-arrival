@@ -17,9 +17,12 @@ export interface CollectedCode {
  * region del beacon. Su iOS sono `didEnterRegion`/`didExitRegion`, l'unico
  * segnale di *fine presenza* che un beacon non-connettibile ci lascia.
  *
- * Non è una prova e non va creduta sulla parola: delimita soltanto. Una
- * sessione vale i minuti dei codici validi che contiene, e quelli non si
- * inventano — dichiararla lunga un'ora non allunga la copertura di un minuto.
+ * Non è una prova e non va creduta sulla parola: **taglia soltanto**. Un
+ * intervallo fra due codici che cade a cavallo di un'uscita non si accredita;
+ * per il resto la copertura la decidono i codici e il tetto di
+ * `maxCreditedGapMs`. Da cui le due proprietà che rendono sicuro accettarle
+ * da un client non fidato: dichiarare una sessione lunga un'ora non allunga
+ * la copertura di un minuto, e non dichiarare niente non la allunga nemmeno.
  */
 export interface PresenceSession {
   startedAt: Date;
@@ -51,23 +54,30 @@ export type Provenance = "machine" | "human" | "machine+human" | "none";
 export interface VerificationConfig {
   /** Quanto può arrivare tardi una consegna rispetto alla raccolta dei codici. */
   maxDeliveryDelayMs: number;
+  /**
+   * Quanto si accredita al massimo nell'intervallo fra due codici consecutivi.
+   * È il tetto che rende la copertura un limite *inferiore*: si accredita il
+   * tempo intorno a ciò che si è campionato, non il tempo che si immagina in
+   * mezzo. Senza tetto, chi esce e rientra si farebbe accreditare l'assenza
+   * semplicemente non dichiarando la sessione (vedi PresenceSession).
+   */
+  maxCreditedGapMs: number;
 }
 
 export const DEFAULT_CONFIG: VerificationConfig = {
   maxDeliveryDelayMs: 6 * 60 * 60 * 1000,
+  maxCreditedGapMs: 10 * 60 * 1000,
 };
 
 export interface Quality {
   /** Codici validi distinti (una finestra = un codice). */
   validCodes: number;
   /**
-   * Somma delle sessioni di presenza, ciascuna misurata dai propri codici
-   * validi e unita alle altre senza contare due volte le sovrapposizioni.
-   * Il tempo passato fuori — fra un'uscita e il rientro — non entra.
-   *
-   * Senza sessioni dichiarate degrada all'arco fra il primo e l'ultimo
-   * codice: è un limite superiore, non una permanenza continua. Leggilo
-   * insieme a `longestGapMinutes`.
+   * Il tempo campionato al venue: la somma degli intervalli fra codici
+   * validi consecutivi, ciascuno accreditato fino al tetto di
+   * `maxCreditedGapMs`. Un limite *inferiore* per costruzione — si accredita
+   * il tempo intorno a ciò che si è sentito, mai il tempo che si immagina in
+   * mezzo. Leggilo insieme a `longestGapMinutes`.
    */
   coverageMinutes: number;
   /**
@@ -104,58 +114,53 @@ function matchesWindow(seed: string, code: CollectedCode): boolean {
   );
 }
 
+function containsInstant(session: PresenceSession, at: number): boolean {
+  return (
+    at >= session.startedAt.getTime() &&
+    at <= (session.endedAt?.getTime() ?? Number.POSITIVE_INFINITY)
+  );
+}
+
 /**
- * Gli intervalli che meritano di essere contati.
+ * La copertura: quanto tempo si è davvero campionato al venue.
  *
- * Ogni sessione dichiarata vale il tratto fra il suo primo e il suo ultimo
- * codice valido: è il client a dire dove sono i confini, ma sono i codici a
- * dire quanto dura. Un codice fuori da ogni sessione resta una prova di
- * presenza (conta in `validCodes`) e vale un istante, non un intervallo.
+ * Si guarda un intervallo alla volta, fra due codici validi consecutivi, e
+ * lo si accredita per la sua durata — ma non oltre il tetto. Due proprietà
+ * che valgono la pena di essere dette:
  *
- * Senza sessioni si ricade su un'unica sessione implicita — il
- * comportamento di prima, che sopravvaluta chi esce e rientra.
+ * 1. **Non serve credere al client.** I codici li verifica il server, e il
+ *    tetto vale comunque. Un telefono che tace non guadagna niente: chi esce
+ *    per un'ora si vede accreditare al massimo un tetto, dichiari o no.
+ * 2. **Le sessioni possono solo tagliare.** Se due codici consecutivi non
+ *    stanno nella stessa sessione dichiarata, in mezzo c'è un'uscita e
+ *    l'intervallo non si accredita affatto. Dichiarare allunga la precisione,
+ *    mai la copertura — che è ciò che rende sicuro accettarle da un client
+ *    non fidato.
+ *
+ * Il numero che ne esce è un limite inferiore per costruzione: si legge
+ * insieme a `longestGapMinutes`, che dice quanto è ruvido il campionamento.
  */
-function creditedIntervals(
+function coverageMinutes(
   validCodes: CollectedCode[],
   sessions: PresenceSession[] | undefined,
-): Array<[number, number]> {
+  maxCreditedGapMs: number,
+): number {
   const times = validCodes
     .map((c) => c.collectedAt.getTime())
     .sort((a, b) => a - b);
-  if (times.length === 0) return [];
-  if (!sessions || sessions.length === 0) {
-    return [[times[0]!, times[times.length - 1]!]];
-  }
 
-  const intervals: Array<[number, number]> = [];
-  const credited = new Set<number>();
-  for (const session of sessions) {
-    const from = session.startedAt.getTime();
-    const to = session.endedAt?.getTime() ?? Number.POSITIVE_INFINITY;
-    const inside = times.filter((t) => t >= from && t <= to);
-    if (inside.length === 0) continue;
-    for (const t of inside) credited.add(t);
-    intervals.push([inside[0]!, inside[inside.length - 1]!]);
+  let credited = 0;
+  for (let i = 1; i < times.length; i++) {
+    const from = times[i - 1]!;
+    const to = times[i]!;
+    const split =
+      sessions !== undefined &&
+      sessions.length > 0 &&
+      !sessions.some((s) => containsInstant(s, from) && containsInstant(s, to));
+    if (split) continue;
+    credited += Math.min(to - from, maxCreditedGapMs);
   }
-  for (const t of times) if (!credited.has(t)) intervals.push([t, t]);
-  return intervals;
-}
-
-/** Unione di intervalli: le sovrapposizioni non si contano due volte. */
-function unionMinutes(intervals: Array<[number, number]>): number {
-  if (intervals.length === 0) return 0;
-  const sorted = [...intervals].sort((a, b) => a[0] - b[0]);
-  let [start, end] = sorted[0]!;
-  let total = 0;
-  for (const [s, e] of sorted.slice(1)) {
-    if (s <= end) {
-      if (e > end) end = e;
-    } else {
-      total += end - start;
-      [start, end] = [s, e];
-    }
-  }
-  return Math.round((total + (end - start)) / 60_000);
+  return Math.round(credited / 60_000);
 }
 
 function longestGapMinutes(validCodes: CollectedCode[]): number {
@@ -187,9 +192,6 @@ export function evaluateDelivery(
 
   const machineWitnessed = validCodes.length > 0;
   const humanWitnessed = delivery.hostAttested === true;
-  const coverageMinutes = unionMinutes(
-    creditedIntervals(validCodes, delivery.sessions),
-  );
 
   const provenance: Provenance =
     machineWitnessed && humanWitnessed
@@ -207,7 +209,11 @@ export function evaluateDelivery(
     provenance,
     quality: {
       validCodes: validCodes.length,
-      coverageMinutes,
+      coverageMinutes: coverageMinutes(
+        validCodes,
+        delivery.sessions,
+        config.maxCreditedGapMs,
+      ),
       longestGapMinutes: longestGapMinutes(validCodes),
       tappedNotification: delivery.confirmationTap === true,
     },

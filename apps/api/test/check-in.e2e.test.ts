@@ -92,7 +92,7 @@ describe("POST /events/:id/deliveries — la cucitura via HTTP", () => {
   it("le consegne dello stesso device si accumulano: il dwell cresce a ogni scansione", async () => {
     const event = await createEvent();
     const t1 = new Date("2026-08-07T19:10:00Z");
-    const t2 = new Date("2026-08-07T19:38:00Z");
+    const t2 = new Date("2026-08-07T19:16:00Z");
     const deliver = (t: Date) =>
       request(http)
         .post(`/events/${event.id}/deliveries`)
@@ -107,7 +107,7 @@ describe("POST /events/:id/deliveries — la cucitura via HTTP", () => {
     await deliver(t1);
     const second = await deliver(t2);
     expect(second.body.quality.validCodes).toBe(2);
-    expect(second.body.quality.coverageMinutes).toBe(28);
+    expect(second.body.quality.coverageMinutes).toBe(6);
 
     const list = await request(http).get(`/events/${event.id}/check-ins`);
     expect(list.status).toBe(200);

@@ -16,7 +16,10 @@ export type Provenance = "machine" | "human" | "machine+human" | "none";
 export interface Quality {
   /** Codici validi distinti: una finestra di 30 s = un codice. */
   validCodes: number;
-  /** Somma delle sessioni di presenza: il tempo passato fuori non entra. */
+  /**
+   * Il tempo campionato al venue: gli intervalli fra codici consecutivi,
+   * ciascuno accreditato fino a un tetto. Limite inferiore per costruzione.
+   */
   coverageMinutes: number;
   /** Il buco più lungo fra due codici: rende visibile chi esce e rientra. */
   longestGapMinutes: number;

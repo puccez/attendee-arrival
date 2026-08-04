@@ -107,7 +107,11 @@ describe("cucitura di verifica: consegna di codici → check-in etichettato", ()
     expect(checkIn.provenance).toBe("none");
   });
 
-  it("qualità: codici distribuiti sulla serata misurano il dwell", () => {
+  it("qualità: la copertura accredita il campionato, non l'arco", () => {
+    // Quattro risvegli in background su un'ora e venti. L'arco direbbe 78
+    // minuti, ma fra un codice e l'altro passano mezz'ore che nessuno ha
+    // sentito: si accredita fino al tetto (10 min), e il resto lo racconta
+    // il buco massimo. Numero più piccolo, e vero.
     const at = (iso: string) => new Date(iso);
     const times = [
       at("2026-08-07T19:42:00Z"),
@@ -126,7 +130,30 @@ describe("cucitura di verifica: consegna di codici → check-in etichettato", ()
     });
 
     expect(checkIn.quality.validCodes).toBe(4);
-    expect(checkIn.quality.coverageMinutes).toBe(78); // 19:42 → 21:00
+    expect(checkIn.quality.coverageMinutes).toBe(30); // 10 + 10 + 10, non 78
+    expect(checkIn.quality.longestGapMinutes).toBe(31);
+  });
+
+  it("qualità: chi resta davvero accumula copertura densa", () => {
+    // Telefono in mano vicino al beacon: un codice ogni due minuti. Nessun
+    // intervallo tocca il tetto, quindi la copertura è la permanenza vera.
+    const at = (iso: string) => new Date(iso);
+    const times = Array.from(
+      { length: 10 },
+      (_, i) => new Date(Date.parse("2026-08-07T19:42:00Z") + i * 120_000),
+    );
+    const checkIn = evaluateDelivery({
+      event,
+      deviceId: "device-anna",
+      codes: times.map((t) => ({
+        value: deriveRotatingCode(SEED, t),
+        collectedAt: t,
+      })),
+      deliveredAt: at("2026-08-07T20:01:00Z"),
+    });
+
+    expect(checkIn.quality.coverageMinutes).toBe(18); // 9 intervalli da 2 min
+    expect(checkIn.quality.longestGapMinutes).toBe(2);
   });
 
   it("qualità: il check-in-e-fuga si vede — un solo codice, copertura zero", () => {
@@ -158,8 +185,9 @@ describe("cucitura di verifica: consegna di codici → check-in etichettato", ()
 
   it("esce e rientra: i minuti fuori non entrano nella copertura", () => {
     // Il caso osservato dal vivo: 7 minuti al venue, 17 fuori, poi rientro.
-    // L'arco fra primo e ultimo codice direbbe 24 — ma 17 li ha passati a
-    // 400 metri, e l'uscita dalla region lo dice.
+    // L'arco fra primo e ultimo codice direbbe 26 — ma 17 li ha passati a
+    // 400 metri, e l'uscita dalla region lo dice. Un client onesto ottiene
+    // 9; uno che tacesse ne otterrebbe 19 (test successivo), mai 26.
     const at = (iso: string) => new Date(iso);
     const times = [
       at("2026-08-07T19:48:00Z"),
@@ -208,9 +236,11 @@ describe("cucitura di verifica: consegna di codici → check-in etichettato", ()
     expect(checkIn.quality.coverageMinutes).toBe(0);
   });
 
-  it("senza sessioni la copertura resta l'arco, ma il buco è dichiarato", () => {
-    // Il client web non ha region BLE: nessuna sessione da consegnare.
-    // Il numero degrada a un limite superiore, e lo si dice.
+  it("senza sessioni il tetto regge lo stesso: il silenzio non compra minuti", () => {
+    // Il client web non ha region BLE e non ha sessioni da consegnare. Ma il
+    // caso interessante è l'altro: un client che *sceglie* di tacere per
+    // farsi accreditare l'assenza. Il tetto vale comunque — 24 minuti di
+    // buco valgono 10, non 24 — e il buco resta scritto in chiaro.
     const at = (iso: string) => new Date(iso);
     const times = [at("2026-08-07T19:48:00Z"), at("2026-08-07T20:12:00Z")];
     const checkIn = evaluateDelivery({
@@ -223,8 +253,34 @@ describe("cucitura di verifica: consegna di codici → check-in etichettato", ()
       deliveredAt: at("2026-08-07T20:12:05Z"),
     });
 
-    expect(checkIn.quality.coverageMinutes).toBe(24);
+    expect(checkIn.quality.coverageMinutes).toBe(10);
     expect(checkIn.quality.longestGapMinutes).toBe(24);
+  });
+
+  it("omettere l'uscita non riporta la copertura all'arco", () => {
+    // Stessi codici di 'esce e rientra', ma il telefono non dichiara niente.
+    // Prima questo bastava a farsi accreditare l'arco intero (26 min):
+    // ora l'unico intervallo che conteneva l'assenza viene tappato a 10.
+    const at = (iso: string) => new Date(iso);
+    const times = [
+      at("2026-08-07T19:48:00Z"),
+      at("2026-08-07T19:51:00Z"),
+      at("2026-08-07T19:55:00Z"),
+      at("2026-08-07T20:12:00Z"),
+      at("2026-08-07T20:14:00Z"),
+    ];
+    const checkIn = evaluateDelivery({
+      event,
+      deviceId: "device-reticente",
+      codes: times.map((t) => ({
+        value: deriveRotatingCode(SEED, t),
+        collectedAt: t,
+      })),
+      deliveredAt: at("2026-08-07T20:14:05Z"),
+    });
+
+    expect(checkIn.quality.coverageMinutes).toBe(19); // 3 + 4 + 10 + 2
+    expect(checkIn.quality.longestGapMinutes).toBe(17);
   });
 
   it("il GPS da solo non accredita mai: provenienza 'none' anche dentro il geofence", () => {

@@ -158,3 +158,88 @@ Coordinati con quella per i riferimenti al canale radio.
 Tono: da ingegnere che consegna, non da venditore. Ogni claim quantitativo
 deve essere vero (niente "dwell gratis", niente "impossibile da frodare").
 Italiano, salvo che l'utente chieda inglese.
+
+---
+
+## Due riscritture richieste (4 agosto 2026)
+
+Il documento è indietro rispetto al codice su due punti. Entrambi migliorano
+la consegna: il primo aggiunge l'unico aneddoto in cui una prova sul campo ha
+corretto il design, il secondo risponde a un'obiezione che il documento oggi
+lascia scoperta.
+
+### 1. Riscrivere §6.4 «Check-in e fuga» — il caso esci-e-rientra
+
+Oggi §6.4 copre solo *entro, timbro, scappo* (1 codice, 0 minuti di copertura),
+che era già giusto. Manca il caso più interessante, ed è successo davvero.
+
+**Cos'è successo.** Test sul campo del 4 agosto, geofence di 150 m sulla casa
+dell'autore. Uscita, 17 minuti a 400 metri, rientro. La dashboard ha mostrato
+la copertura passare da 7 a **24 minuti**: aveva accreditato come permanenza
+anche il tempo passato fuori. La copertura era calcolata come *arco* fra il
+primo e l'ultimo codice — che per chi resta è una buona approssimazione, e per
+chi esce e rientra è esattamente l'errore che il brief chiede di non fare.
+
+**Come è stato risolto.** Due meccanismi, in quest'ordine di importanza:
+
+- **Il tetto per buco** (la difesa che non si fida di nessuno): fra due codici
+  consecutivi si accreditano al massimo 10 minuti. Non serve sapere se
+  l'attendee è uscito: se in mezzo non abbiamo sentito niente, non
+  accreditiamo niente oltre il tetto. La copertura diventa così un **limite
+  inferiore per costruzione** — la §9.1 lo affermava già, ora è letteralmente
+  vero.
+- **Le sessioni di presenza** (la precisione, quando il client collabora):
+  iOS notifica l'uscita dalla region del beacon (`didExitRegion`), l'unico
+  segnale di *fine presenza* che un beacon non-connettibile lascia — non ti
+  vede, quindi non può accorgersi che te ne vai; il sistema operativo sì. Se
+  il telefono dichiara l'uscita, l'intervallo che la contiene non si accredita
+  affatto.
+
+**Il punto da far passare, ed è il migliore della sezione:** le sessioni
+arrivano da un client non fidato, quindi il sistema è costruito perché non
+possano essere sfruttate. Dichiarare una sessione lunga tre ore con un codice
+solo dà **zero**. Non dichiarare niente per farsi accreditare l'assenza dà
+**19 minuti invece di 26**, perché il tetto vale comunque. Le sessioni possono
+solo *tagliare*, mai allungare. È il motivo per cui è sicuro accettarle.
+
+Numeri veri dal test, usabili in tabella (`packages/core/test/verification.test.ts`):
+
+| | copertura | buco massimo |
+|---|---|---|
+| l'arco (com'era prima) | 26 min | — |
+| il telefono tace | 19 min | 17 min |
+| il telefono dichiara l'uscita | **9 min** | 17 min |
+
+E accanto: chi è rimasto davvero raccogliendo un codice ogni due minuti ottiene
+copertura densa e buco massimo di 2 minuti. La differenza fra chi resta e chi
+esce si legge in due colonne, senza soglie che decidano chi è «rimasto
+abbastanza».
+
+Vale la pena dire esplicitamente che il difetto è stato trovato **camminando**,
+non leggendo il codice. È l'argomento più forte a favore di aver costruito una
+demo vera invece di un mockup.
+
+### 2. Nuova sezione: perché non un challenge-response
+
+Testo pronto in **`docs/paradigma.md`**, già scritto nel registro giusto
+(ogni termine tecnico spiegato la prima volta che compare — chi legge il
+business case non è detto che conosca il BLE).
+
+Contiene: le due forme di prova a confronto, la tabella dei trade-off, il
+vincolo iOS che rende il dialogo impossibile a schermo spento, il costo che
+paghiamo (il codice non è legato al tuo telefono → relay entro il minuto), e
+la proposta del **beacon dual-mode** — broadcast per tutta la serata, dialogo
+domanda-e-risposta una volta sola, al tap sulla notifica, quando l'app è in
+primo piano e la connessione è possibile.
+
+Dove collocarla: naturale come **§3.5**, subito dopo «il flusso, per intero»,
+oppure come box dentro §9.1 (reality check). La prima posizione è meglio: è una
+scelta di design, non un limite.
+
+La frase da tenere: alla domanda *«perché non un challenge-response?»* la
+risposta non è «non serve», è **«serve dove una connessione c'è, e per il 99%
+della serata una connessione non c'è»**.
+
+Il dual-mode va anche aggiunto a §12 Evoluzioni, insieme ad App Attest /
+Play Integrity e al FaceID sul tap (la scala dei rinforzi in coda a
+`docs/paradigma.md`, in ordine di convenienza).
