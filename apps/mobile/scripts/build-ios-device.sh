@@ -56,6 +56,13 @@ fi
 # Le script phase di Xcode hanno un PATH ridotto: gli si dice dov'è node.
 echo "export NODE_BINARY=$(command -v node)" > ios/.xcode.env.local
 
+# La pulizia va PRIMA di pod install, non dopo: `pod install` genera gli
+# artefatti di codegen in ios/build/generated, e il target ReactCodegen li
+# elenca fra i propri sorgenti. Cancellare ios/build a valle li porterebbe
+# via, e xcodebuild si fermerebbe su "Build input file cannot be found".
+echo "→ pulisco ios/build"
+rm -rf ios/build
+
 echo "→ pod install"
 (cd ios && pod install)
 
@@ -68,7 +75,6 @@ echo "→ workspace: $WORKSPACE (scheme $SCHEME)"
 # --- build ----------------------------------------------------------------
 
 echo "→ build $CONFIGURATION (la prima volta ci vogliono ~10 minuti)"
-rm -rf ios/build
 (cd ios && xcodebuild \
   -workspace "$WORKSPACE" \
   -scheme "$SCHEME" \
