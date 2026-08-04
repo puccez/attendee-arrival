@@ -89,6 +89,33 @@ describe("POST /events/:id/deliveries — la cucitura via HTTP", () => {
     expect(malformed.status).toBe(400);
   });
 
+  it("le consegne dello stesso device si accumulano: il dwell cresce a ogni scansione", async () => {
+    const event = await createEvent();
+    const t1 = new Date("2026-08-07T19:10:00Z");
+    const t2 = new Date("2026-08-07T19:38:00Z");
+    const deliver = (t: Date) =>
+      request(http)
+        .post(`/events/${event.id}/deliveries`)
+        .send({
+          deviceId: "device-anna",
+          attendeeName: "Anna",
+          codes: [
+            { value: deriveRotatingCode(event.seed, t), collectedAt: t.toISOString() },
+          ],
+        });
+
+    await deliver(t1);
+    const second = await deliver(t2);
+    expect(second.body.quality.validCodes).toBe(2);
+    expect(second.body.quality.coverageMinutes).toBe(28);
+
+    const list = await request(http).get(`/events/${event.id}/check-ins`);
+    expect(list.status).toBe(200);
+    expect(list.body).toHaveLength(1);
+    expect(list.body[0].attendeeName).toBe("Anna");
+    expect(list.body[0].quality.validCodes).toBe(2);
+  });
+
   it("espone il codice corrente alla console dell'evento", async () => {
     const event = await createEvent();
     const res = await request(http).get(`/events/${event.id}/code`);

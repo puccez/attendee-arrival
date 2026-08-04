@@ -8,16 +8,14 @@ import {
   Post,
 } from "@nestjs/common";
 import { z } from "zod";
-import {
-  deriveRotatingCode,
-  evaluateDelivery,
-  type CheckIn,
-} from "@attendee-arrival/core";
+import { deriveRotatingCode } from "@attendee-arrival/core";
 import { CLOCK, type Clock } from "../clock.js";
 import { EventsService } from "../events/events.service.js";
+import { CheckInsService, type AttendeeCheckIn } from "./check-ins.service.js";
 
 const deliverySchema = z.object({
   deviceId: z.string().min(1),
+  attendeeName: z.string().min(1).optional(),
   codes: z.array(
     z.object({
       value: z.string().min(1),
@@ -46,6 +44,7 @@ const createEventSchema = z.object({
 export class CheckInController {
   constructor(
     @Inject(EventsService) private readonly events: EventsService,
+    @Inject(CheckInsService) private readonly checkIns: CheckInsService,
     @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
@@ -54,6 +53,13 @@ export class CheckInController {
     const parsed = createEventSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(parsed.error.issues);
     return this.events.create(parsed.data);
+  }
+
+  /** Dettagli pubblici dell'evento: il seme NON esce mai da qui. */
+  @Get("events/:eventId")
+  getEvent(@Param("eventId") eventId: string) {
+    const { seed: _seed, ...publicEvent } = this.events.get(eventId);
+    return publicEvent;
   }
 
   /** Il codice corrente per la console dell'evento (beacon-notaio). */
@@ -67,14 +73,20 @@ export class CheckInController {
   }
 
   @Post("events/:eventId/deliveries")
-  deliver(@Param("eventId") eventId: string, @Body() body: unknown): CheckIn {
+  deliver(
+    @Param("eventId") eventId: string,
+    @Body() body: unknown,
+  ): AttendeeCheckIn {
     const parsed = deliverySchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(parsed.error.issues);
     const event = this.events.get(eventId);
-    return evaluateDelivery({
-      event,
-      ...parsed.data,
-      deliveredAt: this.clock.now(),
-    });
+    return this.checkIns.record(event, parsed.data, this.clock.now());
+  }
+
+  /** La dashboard dell'host: lo stato di tutti gli attendee dell'evento. */
+  @Get("events/:eventId/check-ins")
+  listCheckIns(@Param("eventId") eventId: string): AttendeeCheckIn[] {
+    this.events.get(eventId); // 404 se sconosciuto
+    return this.checkIns.list(eventId);
   }
 }

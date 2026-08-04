@@ -1,0 +1,22 @@
+{
+  "name": "@attendee-arrival/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "nuxt preview"
+  },
+  "dependencies": {
+    "@attendee-arrival/core": "workspace:*",
+    "jsqr": "^1.4.0",
+    "nuxt": "^4.0.0",
+    "qrcode": "^1.5.4",
+    "vue": "^3.5.0",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.5"
+  }
+}
