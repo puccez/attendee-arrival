@@ -50,8 +50,12 @@ export class CheckInsService {
       gpsInsideSeen: false,
     };
 
+    // Prima raccolta vince: un codice già nel borsellino non viene
+    // sostituito da una riconsegna con timestamp diverso.
     const byValue = new Map(state.codes.map((c) => [c.value, c]));
-    for (const code of input.codes) byValue.set(code.value, code);
+    for (const code of input.codes) {
+      if (!byValue.has(code.value)) byValue.set(code.value, code);
+    }
     state.codes = [...byValue.values()];
     state.hostAttested ||= input.hostAttested === true;
     state.confirmationTap ||= input.confirmationTap === true;

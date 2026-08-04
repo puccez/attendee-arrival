@@ -114,6 +114,10 @@ onUnmounted(() => timers.forEach(clearInterval));
         <p style="font-size: 13px; word-break: break-all">
           <a :href="attendeeUrl">{{ attendeeUrl }}</a>
         </p>
+        <p style="font-size: 13px">
+          Oppure prova a fregarlo:
+          <NuxtLink :to="`/attacker/${eventId}`">sandbox d'attacco</NuxtLink>
+        </p>
       </div>
     </div>
 

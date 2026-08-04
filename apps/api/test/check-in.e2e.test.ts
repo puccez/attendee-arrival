@@ -116,6 +116,27 @@ describe("POST /events/:id/deliveries — la cucitura via HTTP", () => {
     expect(list.body[0].quality.validCodes).toBe(2);
   });
 
+  it("una riconsegna tardiva dello stesso codice non cancella la raccolta valida", async () => {
+    const event = await createEvent();
+    const collectedAt = new Date("2026-08-07T19:42:10Z");
+    const code = deriveRotatingCode(event.seed, collectedAt);
+    const deliver = (at: Date) =>
+      request(http)
+        .post(`/events/${event.id}/deliveries`)
+        .send({
+          deviceId: "device-anna",
+          codes: [{ value: code, collectedAt: at.toISOString() }],
+        });
+
+    const first = await deliver(collectedAt);
+    expect(first.body.provenance).toBe("machine");
+
+    // Stesso codice ripresentato con un timestamp fuori finestra.
+    const second = await deliver(new Date("2026-08-07T20:30:00Z"));
+    expect(second.body.provenance).toBe("machine");
+    expect(second.body.accredited).toBe(true);
+  });
+
   it("emette un token PowerSync firmato col secret Supabase, sub = deviceId", async () => {
     process.env.SUPABASE_JWT_SECRET = "test-secret-abbastanza-lungo-123456";
     process.env.POWERSYNC_URL = "https://test.powersync.example";
