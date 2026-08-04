@@ -11,6 +11,7 @@ import { z } from "zod";
 import { deriveRotatingCode } from "@attendee-arrival/core";
 import { CLOCK, type Clock } from "../clock.js";
 import { EventsService } from "../events/events.service.js";
+import { resolveBacking } from "../store/lazy.js";
 import { CheckInsService, type AttendeeCheckIn } from "./check-ins.service.js";
 
 const deliverySchema = z.object({
@@ -47,6 +48,12 @@ export class CheckInController {
     @Inject(CheckInsService) private readonly checkIns: CheckInsService,
     @Inject(CLOCK) private readonly clock: Clock,
   ) {}
+
+  /** Stato del servizio: quale store è attivo (nessun segreto esposto). */
+  @Get("health")
+  health() {
+    return { store: resolveBacking().kind };
+  }
 
   @Post("events")
   createEvent(@Body() body: unknown) {
