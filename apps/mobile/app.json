@@ -45,12 +45,6 @@
           "isAndroidBackgroundLocationEnabled": true
         }
       ],
-      [
-        "expo-notifications",
-        {
-          "color": "#f5b301"
-        }
-      ],
       "./plugins/with-local-notifications-only"
     ]
   }
