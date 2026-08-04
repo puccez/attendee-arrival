@@ -1,4 +1,5 @@
-import { requireOptionalNativeModule, type NativeModule } from "expo-modules-core";
+// NativeModule serve come valore (clausola `extends`), non solo come tipo.
+import { NativeModule, requireOptionalNativeModule } from "expo-modules-core";
 
 /**
  * wemeet-beacon — l'orecchio radio dell'app.
