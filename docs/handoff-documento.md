@@ -243,3 +243,215 @@ della serata una connessione non c'è»**.
 Il dual-mode va anche aggiunto a §12 Evoluzioni, insieme ad App Attest /
 Play Integrity e al FaceID sul tap (la scala dei rinforzi in coda a
 `docs/paradigma.md`, in ordine di convenienza).
+
+---
+
+# Correzioni dopo la review indipendente (5 agosto 2026)
+
+Una review adversariale con GPT-5.6 (contesto: brief integrale + business dei
+WeMeet) ha letto il codice **e attaccato l'API in esecuzione**. Ha trovato un
+errore vero, e non un dettaglio: **§6.3 dice una cosa falsa sulla frode n°3 del
+non-negoziabile**. Il codice è stato corretto; qui sotto ci sono le riscritture.
+
+Copia integrale della review: `~/Work/wemeet/review-gpt56-sol.md`.
+
+## 0. Il fatto, prima delle riscritture
+
+Il server verifica due cose e solo due: che il codice corrisponda alla finestra
+dichiarata, e che la consegna arrivi entro la finestra di consegna (6 ore).
+
+Quindi lo screenshot inoltrato **non muore dopo 60 secondi**. Muore solo se chi
+lo riceve *mente* sull'ora di raccolta: il codice è autodatante, e una finestra
+sbagliata non corrisponde. Se dichiara l'ora vera — cioè se dice la verità — il
+codice passa, e passa per sei ore.
+
+La sandbox non lo mostrava perché al momento dell'inoltro **riscriveva il
+timestamp con l'ora corrente**: stava simulando l'attaccante ingenuo. Ora ha due
+bottoni, «l'ho appena preso io» e «me l'ha girato lui alle 21:14», e il secondo
+passa. È una dimostrazione migliore, non peggiore: fa vedere che il codice è
+davvero autodatante *e* che questo non basta a impedire l'inoltro.
+
+Detto in una riga: **un Codice Rotante è un titolo al portatore.** Chi ce l'ha
+lo spende. Legarlo al device richiederebbe un dialogo domanda-e-risposta, che è
+esattamente ciò che iOS non concede a schermo spento (`docs/paradigma.md`).
+
+## 1. §6.3 — riscrittura integrale
+
+> ### 6.3 QR screenshottato e inoltrato
+>
+> **L'attacco.** Screenshotti il QR e lo giri su WhatsApp a chi è rimasto a casa.
+>
+> **Cosa succede.** Dipende da quanto è sveglio chi lo riceve, e il risultato è
+> il contrario di quello che ci si aspetta.
+>
+> Se dichiara di aver raccolto il codice *adesso*, viene respinto: il server
+> ricalcola dal seme il codice atteso per l'istante dichiarato, e quello di due
+> minuti fa non corrisponde. Il Codice Rotante è autodatante, e **mentire
+> sull'ora lo rompe**.
+>
+> Se invece dichiara l'ora vera — le 21:14, quando il complice l'ha
+> effettivamente inquadrato — **il codice passa**, e continua a passare finché
+> resta aperta la finestra di consegna (sei ore). Dire la verità funziona.
+>
+> **Perché è così, e perché lo diciamo.** Un codice trasmesso in broadcast è un
+> titolo al portatore: chiunque lo riceva può spenderlo. Non c'è modo di legarlo
+> al telefono che l'ha sentito senza un dialogo domanda-e-risposta fra device e
+> venue — che è precisamente ciò che iOS non permette a schermo spento (§3.5).
+> Questa è la frode che il design **non previene**, ed è l'unica.
+>
+> **Cosa la rende comunque irrazionale.** Tre cose, in ordine di forza:
+>
+> 1. **Serve un complice fisicamente al venue.** Non un exploit: una persona che
+>    è lì e che avrebbe potuto semplicemente portarti con sé. Per un aperitivo
+>    gratuito, il costo dell'attacco supera il valore del bottino prima ancora di
+>    cominciare.
+> 2. **Il ritardo di consegna è visibile.** Il server timbra ogni codice quando
+>    arriva la prima volta — è l'unico istante della consegna che non viene dal
+>    client. Chi è al venue consegna in diretta: ritardo di secondi. Chi riceve
+>    codici inoltrati li consegna dopo: la dashboard dice *prova vecchia di 47
+>    minuti quando è arrivata*.
+> 3. **La copertura resta bassa a meno di insistere.** Un codice solo dà zero
+>    minuti. Per costruire una serata credibile servono codici distribuiti nel
+>    tempo — e quindi un complice che continua a inoltrare.
+>
+> **Onestà sul numero.** Servono meno inoltri di quanti sembri: siccome fra due
+> codici consecutivi si accreditano al massimo 10 minuti (§6.4), **una tredicina
+> di codici basta a costruire due ore di copertura**, e possono essere girati
+> tutti insieme a fine serata. Non uno ogni 30 secondi per l'intera serata: non
+> vogliamo che questo numero sembri più grande di quello che è.
+>
+> **Quello che il ritardo non fa.** Non distingue il complice dall'attendee
+> onesto rimasto senza rete tutta la sera: per il server sono lo stesso fatto —
+> prove vere, arrivate tardi. È per questo che il ritardo entra nella *qualità*
+> e non nella *provenienza*: descrive, non giudica. Chi consuma il dato sa che
+> «consegnato in diretta» e «consegnato tre ore dopo» sono due qualità di prova
+> diverse, e decide.
+>
+> **Il rinforzo, quando servisse.** Il beacon dual-mode di §3.5 — un dialogo
+> domanda-e-risposta una volta sola, al tap sulla notifica — lega quel singolo
+> istante al device e chiude la finestra. Non è nella prima versione perché per
+> un evento gratuito il costo dell'attacco è già superiore al premio.
+
+## 2. §6.5 — la sandbox dimostra altro, adeguare
+
+Il bottone bonus ora manda **sei cifre a caso datate 13 ore fa**, e il rifiuto
+ha due ragioni indipendenti che vale la pena mostrare insieme:
+
+- il codice inventato non corrisponde a nessuna finestra: lo spazio è 10⁶ e il
+  server accetta tre finestre, quindi **una probabilità su ~333.000** per
+  tentativo;
+- e comunque la consegna arriva oltre la finestra dichiarata.
+
+Da aggiungere nella stessa sezione, perché la review l'ha sollevato ed è giusto:
+**la demo non ha rate limiting**, quindi «poco pratico» non è «impedito». In
+produzione è una riga di middleware. §9.2 lo dice già: qui va solo richiamato.
+
+## 3. «machine prova quel device» — affermazione da correggere ovunque
+
+Compare in §4 e in §6.1. Non è vera: il `deviceId` lo sceglie il client, e i
+codici sono al portatore. La formulazione corretta:
+
+> **macchina** — un codice emesso al venue in quel minuto è arrivato al server
+> attraverso questo account. Prova che *qualcuno* era lì e che la prova è
+> passata di qui — non *quale* telefono l'ha sentita. Il legame device↔persona
+> resta il limite strutturale (§9.1), ed è esattamente perché esiste che
+> `umano` è un asse separato.
+
+## 4. §4 — la tabella della qualità guadagna una colonna
+
+La qualità ora ha quattro numeri: codici validi, copertura, buco massimo,
+**ritardo di consegna**. Righe d'esempio suggerite:
+
+| Provenienza | Qualità | Lettura |
+|---|---|---|
+| macchina | 97 codici, 94 min, ritardo 0 | C'era, è rimasta, consegnava in diretta |
+| macchina | 13 codici, 120 min, **ritardo 148 min** | Copertura piena ma tutta arrivata a fine serata: o era offline, o i codici gliel'ha girati qualcuno |
+| macchina | 1 codice, 0 min, ritardo 0 | C'era per un istante, ed era davvero lì |
+
+La riga di mezzo è quella che vale la pena commentare: **è la stessa riga per
+l'attendee onesto senza rete e per il complice remoto.** Il sistema non finge
+di saperlo distinguere. Lo mostra e lascia decidere.
+
+## 5. §9.1 — un limite in più nel reality check
+
+> **Il codice è un titolo al portatore.** La prova viaggia in broadcast, quindi
+> chi la riceve può passarla. Il sistema non può accorgersene: può solo misurare
+> quanto era vecchia quando è arrivata. Chiudere questa finestra richiede un
+> canale bidirezionale (§3.5) o l'attestazione hardware del device — entrambi
+> previsti, nessuno dei due gratuito.
+
+## 6. §9.2 — la riga sull'autenticazione va chiusa fino in fondo
+
+La tabella dice già «nessuna autenticazione». Non basta: va detta la
+**conseguenza**, perché un valutatore tecnico la scopre in cinque minuti e la
+scoperta deve essere nostra, non sua.
+
+> **La demo è aperta di proposito**, così si può provare senza registrarsi. La
+> conseguenza è che `GET /events/:id/code` risponde a chiunque: da riga di
+> comando ci si accredita `macchina` dal divano, senza essere mai stati al
+> venue. In produzione quell'endpoint appartiene all'host, come la dashboard e
+> la testimonianza manuale. **Quello che la demo dimostra è la cucitura di
+> verifica, non il perimetro** — e le due cose vanno lette separate.
+
+Da aggiungere alla tabella di §9.2, perché la review le ha trovate e sono vere:
+
+| Oggi nella demo | In produzione |
+|---|---|
+| La finestra oraria dell'evento non è applicata: un codice raccolto fuori orario passa | Filtro `startsAt ≤ collectedAt ≤ endsAt` (il dato è già nel modello) |
+| Un `collectedAt` nel futuro non viene rifiutato | Controllo `collectedAt ≤ deliveredAt` |
+| Le consegne concorrenti fanno `carica → unisci → salva` senza lock | Transazione, o `INSERT … ON CONFLICT` con merge lato database |
+| Lo stesso codice accredita device diversi | È **corretto e necessario**: al venue tutti sentono lo stesso codice. Non è un buco, è il broadcast |
+
+## 7. Cosa è cambiato nel codice (per §10 e per l'appendice)
+
+- **La testimonianza umana ha un endpoint suo**: `POST /events/:id/attestations
+  {deviceId, attendeeName?}`. `hostAttested` **non esiste più** nel payload di
+  `POST /deliveries` — l'appendice va aggiornata. Da qui nasce anche la riga di
+  chi non ha mai consegnato niente, che è il gradino 4 di §7.2 (telefono
+  scarico) finalmente coperto dall'API e non solo dal testo.
+- **La qualità ha un campo nuovo**: `deliveryLagMinutes`.
+- **I conteggi dei test**: core **23** (erano 13), e2e **12** (erano 7).
+
+Appendice, risposta aggiornata:
+
+```
+→ 201 {
+  "accredited": true,
+  "provenance": "machine",
+  "quality": {
+    "validCodes": 12, "coverageMinutes": 94,
+    "longestGapMinutes": 7, "deliveryLagMinutes": 0,
+    "tappedNotification": true
+  }
+}
+```
+
+## 8. Una nota di metodo che vale la pena mettere nel documento
+
+Il difetto di §6.4 è stato trovato **camminando** (handoff precedente). Questo
+di §6.3 è stato trovato **facendo attaccare il sistema da un revisore
+indipendente**. Nessuno dei due si vedeva rileggendo il proprio codice.
+
+Se c'è spazio in §9, una riga onesta su questo vale più di una difesa in più:
+il modo in cui un design viene messo alla prova conta quanto il design.
+
+## 9. §10 — «un solo endpoint di scrittura» non regge più
+
+La frase era già scaduta con la telemetria; ora ci sono tre porte in scrittura, e
+la distinzione fra loro **è** il modello, quindi conviene raccontarla invece di
+nasconderla:
+
+> **`POST /events/:id/deliveries`** — la cucitura di verifica: ciò che
+> l'attendee afferma di aver raccolto. È l'unica porta che può produrre
+> provenienza `macchina`, e tutto ciò che vi entra viene ricalcolato dal seme.
+>
+> **`POST /events/:id/attestations`** — ciò che l'host afferma di aver visto.
+> Unica porta per `umano`. Separata di proposito: se la testimonianza fosse un
+> campo della consegna, il borsellino di un attendee potrebbe accreditarsi da
+> solo la parola di qualcun altro.
+>
+> **`POST /events/:id/telemetry`** — ciò che il telefono ha fatto. Non tocca il
+> giudizio e non gli passa nemmeno accanto: serve a spiegare i silenzi.
+
+Tre porte, tre livelli di fiducia, nessuna sovrapposizione. È una frase più
+forte di «un solo endpoint».
