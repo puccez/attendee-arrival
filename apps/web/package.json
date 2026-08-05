@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@attendee-arrival/core": "workspace:*",
+    "@fontsource-variable/figtree": "^5.3.0",
     "@journeyapps/wa-sqlite": "^2.0.1",
     "@powersync/vue": "^0.6.0",
     "@powersync/web": "^2.1.0",
