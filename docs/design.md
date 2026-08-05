@@ -373,7 +373,57 @@ un'immagine, meglio un fondo pieno o niente.
 
 ---
 
-## 10. Rimasto aperto
+## 10. Cosa è già applicato
+
+Questa sezione è il registro: senza, il documento resta un'intenzione e nessuno
+sa più cosa manca.
+
+**Fondamenta** (`apps/web/app/app.vue`). Il blocco `:root` di §8 è quello vero;
+i vecchi nomi (`--accent`, `--panel`, `--bg`) restano come alias così le
+pagine non ancora ripulite continuano a girare. Il corallo `#ff4758` ha
+sostituito l'arancio bruciato `#e1502e` ovunque. Raggi: 6px sui controlli,
+16px sulle card, pastiglia piena dove si tocca. Nessuna ombra, tranne quella
+appena percettibile sotto la barra d'azione fissa.
+
+**Il carattere.** Figtree è installata e servita dal nostro dominio
+(`@fontsource-variable/figtree`, licenza OFL), dichiarata dopo Google Sans.
+Una nota da non perdere: il nome che registra il pacchetto è **«Figtree
+Variable»**, non «Figtree» — con lo stack di §3 alla lettera il fallback non
+aggancia mai il file che abbiamo appena installato, e si vede solo misurando.
+
+**I tre sistemi si separano in `app.vue`**, non a mano pagina per pagina: la
+rotta decide. `/attendee/*` prende il guscio `.phone` (sabbia fino ai bordi
+dello schermo, colonna da 430px, niente padding da scrivania); tutto il resto
+prende `.desk` (bianco, 960px). Una riga sola, e la differenza di §1 smette di
+essere una raccomandazione.
+
+**Vista attendee** — rifatta sulla struttura del dettaglio evento dell'app:
+testata a tutto schermo con pastiglia di stato e titolo bianco, card che
+risale di 24px, righe informative con tessere `#dfe8e9`, barra d'azione fissa
+a pastiglia con etichetta a sinistra e azione a destra. Al posto della loro
+fotografia c'è un fondo pieno scuro con un velo corallo: le foto di WeRoad non
+le copiamo (§9), ma un rettangolo nero e basta si legge come un'immagine che
+non è arrivata.
+
+E la regola di §7 è applicata sul serio: **l'attendee non legge più il
+vocabolario della verifica.** Dove c'era «Prova di prossimità», «borsellino
+(PowerSync)», «provenance: machine», adesso c'è «Ci sei», «Sei qui da 42
+minuti», «Niente rete, nessun problema». Le etichette vere restano — chiuse in
+un `<details>` chiamato «Dietro le quinte (demo)», perché chi guarda la demo
+deve poterle vedere e chi è all'aperitivo no.
+
+**Console** — resta il linguaggio del web e ha ereditato i token. Una frase è
+stata rimossa perché era falsa: *«ruota ogni 30 secondi — screenshottarlo non
+serve a niente»*. È la stessa affermazione che avevamo già corretto nel
+documento e in `CONTEXT.md`, sopravvissuta nell'interfaccia.
+
+**Sandbox** — gli esiti si separano a colpo d'occhio: verde quando il sistema
+ha tenuto, rosso funzionale `#dc2626` quando l'attacco è passato. Il rosso del
+brand resta solo sui bottoni, perché lì vuol dire «ci si clicca».
+
+---
+
+## 11. Rimasto aperto
 
 - **La schermata di avvio dell'app è scura** (fondo quasi nero, marchio bianco,
   tag rosso) mentre l'app è chiara e calda. È una schermata di lancio brandizzata,

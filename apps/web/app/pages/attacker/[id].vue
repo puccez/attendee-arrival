@@ -213,7 +213,12 @@ function badgeClass(p: ApiCheckIn["provenance"]) {
       <button :disabled="busy[attack.key]" @click="attack.run">
         {{ attack.label }}
       </button>
-      <div v-if="outcomes[attack.key]" class="notice" style="margin-top: 12px">
+      <div
+        v-if="outcomes[attack.key]"
+        class="notice"
+        :class="outcomes[attack.key]!.checkIn.accredited ? 'broke' : 'held'"
+        style="margin-top: 12px"
+      >
         <span
           class="badge"
           :class="badgeClass(outcomes[attack.key]!.checkIn.provenance)"
@@ -270,7 +275,12 @@ function badgeClass(p: ApiCheckIn["provenance"]) {
           }}»
         </button>
       </div>
-      <div v-if="outcomes.screenshot" class="notice" style="margin-top: 12px">
+      <div
+        v-if="outcomes.screenshot"
+        class="notice"
+        :class="outcomes.screenshot.checkIn.accredited ? 'broke' : 'held'"
+        style="margin-top: 12px"
+      >
         <span
           class="badge"
           :class="badgeClass(outcomes.screenshot.checkIn.provenance)"
@@ -295,7 +305,12 @@ function badgeClass(p: ApiCheckIn["provenance"]) {
       <button :disabled="busy.hitrun" @click="attackHitAndRun">
         Raccogli un codice e scappa
       </button>
-      <div v-if="outcomes.hitrun" class="notice" style="margin-top: 12px">
+      <div
+        v-if="outcomes.hitrun"
+        class="notice"
+        :class="outcomes.hitrun.checkIn.accredited ? 'broke' : 'held'"
+        style="margin-top: 12px"
+      >
         <span
           class="badge"
           :class="badgeClass(outcomes.hitrun.checkIn.provenance)"
@@ -324,7 +339,12 @@ function badgeClass(p: ApiCheckIn["provenance"]) {
       <button :disabled="busy.late" @click="attackLate">
         Tira a indovinare
       </button>
-      <div v-if="outcomes.late" class="notice" style="margin-top: 12px">
+      <div
+        v-if="outcomes.late"
+        class="notice"
+        :class="outcomes.late.checkIn.accredited ? 'broke' : 'held'"
+        style="margin-top: 12px"
+      >
         <span class="badge" :class="badgeClass(outcomes.late.checkIn.provenance)">
           {{ outcomes.late.checkIn.provenance }}
         </span>
