@@ -154,9 +154,17 @@ export class PgCheckInsStore implements CheckInsStore {
     if (!r) return null;
     return {
       attendeeName: r.attendee_name ?? undefined,
-      codes: (r.codes as { value: string; collectedAt: string }[]).map((c) => ({
+      codes: (
+        r.codes as {
+          value: string;
+          collectedAt: string;
+          deliveredAt?: string;
+        }[]
+      ).map((c) => ({
         value: c.value,
         collectedAt: new Date(c.collectedAt),
+        // Assente sulle righe scritte prima del timbro d'arrivo.
+        deliveredAt: c.deliveredAt ? new Date(c.deliveredAt) : undefined,
       })),
       sessions: (
         (r.sessions ?? []) as { startedAt: string; endedAt?: string }[]

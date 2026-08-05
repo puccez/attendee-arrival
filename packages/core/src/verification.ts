@@ -10,6 +10,16 @@ export interface EventWindow {
 export interface CollectedCode {
   value: string;
   collectedAt: Date;
+  /**
+   * Quando questo codice è arrivato al server la prima volta.
+   *
+   * Lo stampiglia la cucitura, non il client: è l'unico istante di tutta la
+   * consegna che il server osserva invece di riceverlo. Serve a misurare
+   * quanto era vecchia la prova quando è arrivata (vedi `deliveryLagMinutes`).
+   * Assente sulle righe scritte prima che esistesse: si ricade sull'istante
+   * della consegna corrente.
+   */
+  deliveredAt?: Date;
 }
 
 /**
@@ -88,6 +98,22 @@ export interface Quality {
    * resta — ma è la differenza visibile all'host.
    */
   longestGapMinutes: number;
+  /**
+   * Quanto era vecchia la prova più vecchia quando è arrivata al server.
+   *
+   * È la misura onesta della sola frode che questo design non previene. Un
+   * Codice Rotante è un titolo al portatore: chi ce l'ha lo spende. Chi è al
+   * venue lo consegna appena può — pochi secondi, qualche minuto. Chi lo
+   * riceve inoltrato lo consegna con l'ora vera di raccolta (mentire lo
+   * romperebbe: il codice è autodatante) e quindi si porta dietro il ritardo.
+   *
+   * Non separa il complice dall'attendee onesto rimasto offline tutta la
+   * sera: sono lo stesso fatto visto dal server. Ma mette la differenza in
+   * chiaro invece di lasciarla implicita — «consegnato in diretta» e
+   * «consegnato tre ore dopo» sono due qualità di prova, e chi legge il dato
+   * decide quanto valgono.
+   */
+  deliveryLagMinutes: number;
   /** Tap sulla notifica one-tap: segnale di coerenza, mai di provenienza. */
   tappedNotification: boolean;
 }
@@ -170,6 +196,26 @@ function coverageMinutes(
   return Math.round(credited / 60_000);
 }
 
+/**
+ * Il ritardo della prova più vecchia. Vedi `Quality.deliveryLagMinutes`.
+ *
+ * Si guarda ogni codice al suo *primo* arrivo, non all'ultima rivalutazione:
+ * altrimenti il numero crescerebbe da solo a ogni consegna successiva e
+ * racconterebbe il passare del tempo invece del ritardo. Un `collectedAt` nel
+ * futuro non produce un ritardo negativo: resta zero.
+ */
+function deliveryLagMinutes(
+  validCodes: CollectedCode[],
+  deliveredAt: Date,
+): number {
+  let worst = 0;
+  for (const code of validCodes) {
+    const arrived = (code.deliveredAt ?? deliveredAt).getTime();
+    worst = Math.max(worst, arrived - code.collectedAt.getTime());
+  }
+  return Math.round(worst / 60_000);
+}
+
 function longestGapMinutes(validCodes: CollectedCode[]): number {
   const times = validCodes
     .map((c) => c.collectedAt.getTime())
@@ -222,6 +268,7 @@ export function evaluateDelivery(
         config.maxCreditedGapMs,
       ),
       longestGapMinutes: longestGapMinutes(validCodes),
+      deliveryLagMinutes: deliveryLagMinutes(validCodes, delivery.deliveredAt),
       tappedNotification: delivery.confirmationTap === true,
     },
   };

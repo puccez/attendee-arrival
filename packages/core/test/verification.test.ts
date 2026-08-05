@@ -183,6 +183,79 @@ describe("cucitura di verifica: consegna di codici → check-in etichettato", ()
     expect(checkIn.quality.validCodes).toBe(1);
   });
 
+  it("ritardo: chi è al venue consegna in diretta, il ritardo è zero", () => {
+    const at = (iso: string) => new Date(iso);
+    const times = [at("2026-08-07T19:42:00Z"), at("2026-08-07T19:44:00Z")];
+    const checkIn = evaluateDelivery({
+      event,
+      deviceId: "device-anna",
+      codes: times.map((t) => ({
+        value: deriveRotatingCode(SEED, t),
+        collectedAt: t,
+        // Il server ha timbrato l'arrivo pochi secondi dopo la raccolta.
+        deliveredAt: new Date(t.getTime() + 4_000),
+      })),
+      deliveredAt: at("2026-08-07T19:44:10Z"),
+    });
+
+    expect(checkIn.quality.deliveryLagMinutes).toBe(0);
+  });
+
+  it("ritardo: l'inoltro in blocco si porta dietro l'età della prova", () => {
+    // Il complice al venue raccoglie tutta la sera e gira i codici a fine
+    // serata. Ogni codice è vero e dichiara l'ora giusta — mentire lo
+    // romperebbe. Quello che non può nascondere è quanto era vecchio
+    // quando è arrivato qui.
+    const at = (iso: string) => new Date(iso);
+    const arrivedAt = at("2026-08-07T21:05:00Z");
+    const times = [at("2026-08-07T19:00:00Z"), at("2026-08-07T21:00:00Z")];
+    const checkIn = evaluateDelivery({
+      event,
+      deviceId: "device-complice",
+      codes: times.map((t) => ({
+        value: deriveRotatingCode(SEED, t),
+        collectedAt: t,
+        deliveredAt: arrivedAt,
+      })),
+      deliveredAt: arrivedAt,
+    });
+
+    expect(checkIn.accredited).toBe(true); // non lo impediamo...
+    expect(checkIn.quality.deliveryLagMinutes).toBe(125); // ...lo misuriamo
+    expect(checkIn.quality.coverageMinutes).toBe(10); // il tetto regge
+  });
+
+  it("ritardo: senza timbro d'arrivo si ricade sulla consegna corrente", () => {
+    // Le righe scritte prima che il timbro esistesse non hanno il campo.
+    const collectedAt = new Date("2026-08-07T19:42:10Z");
+    const checkIn = evaluateDelivery({
+      event,
+      deviceId: "device-vecchio",
+      codes: [{ value: deriveRotatingCode(SEED, collectedAt), collectedAt }],
+      deliveredAt: new Date("2026-08-07T20:12:10Z"),
+    });
+
+    expect(checkIn.quality.deliveryLagMinutes).toBe(30);
+  });
+
+  it("ritardo: un collectedAt nel futuro non compra un ritardo negativo", () => {
+    const collectedAt = new Date("2026-08-07T19:42:10Z");
+    const checkIn = evaluateDelivery({
+      event,
+      deviceId: "device-veggente",
+      codes: [
+        {
+          value: deriveRotatingCode(SEED, collectedAt),
+          collectedAt,
+          deliveredAt: new Date("2026-08-07T19:30:00Z"),
+        },
+      ],
+      deliveredAt: new Date("2026-08-07T19:42:15Z"),
+    });
+
+    expect(checkIn.quality.deliveryLagMinutes).toBe(0);
+  });
+
   it("esce e rientra: i minuti fuori non entrano nella copertura", () => {
     // Il caso osservato dal vivo: 7 minuti al venue, 17 fuori, poi rientro.
     // L'arco fra primo e ultimo codice direbbe 26 — ma 17 li ha passati a

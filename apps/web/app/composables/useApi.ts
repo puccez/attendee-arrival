@@ -25,6 +25,8 @@ export interface ApiCheckIn {
     validCodes: number;
     coverageMinutes: number;
     longestGapMinutes: number;
+    /** Quanto era vecchia la prova più vecchia quando è arrivata al server. */
+    deliveryLagMinutes: number;
     tappedNotification: boolean;
   };
   updatedAt: string;

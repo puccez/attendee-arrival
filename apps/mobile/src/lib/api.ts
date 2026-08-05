@@ -23,6 +23,11 @@ export interface Quality {
   coverageMinutes: number;
   /** Il buco più lungo fra due codici: rende visibile chi esce e rientra. */
   longestGapMinutes: number;
+  /**
+   * Quanto era vecchia la prova più vecchia quando è arrivata al server: chi
+   * è al venue consegna in diretta, una prova inoltrata porta il suo ritardo.
+   */
+  deliveryLagMinutes: number;
   /** Tap sulla notifica one-tap: arricchisce la qualità, mai la provenienza. */
   tappedNotification: boolean;
 }
