@@ -98,8 +98,13 @@ onUnmounted(() => timers.forEach(clearInterval));
         <h2>Codice Rotante</h2>
         <canvas ref="codeCanvas"></canvas>
         <div class="code-digits">{{ currentCode }}</div>
+        <!-- Qui c'era «screenshottarlo non serve a niente»: non è vero, ed è
+             la stessa frase che abbiamo corretto nel documento. Uno screenshot
+             inoltrato è spendibile finché è aperta la finestra di consegna —
+             quello che non può nascondere è il ritardo. Vedi la sandbox. -->
         <p class="muted" style="font-size: 13px">
-          ruota ogni 30 secondi — screenshottarlo non serve a niente
+          cambia ogni 30 secondi, e ogni codice si porta dietro il minuto in
+          cui è nato
         </p>
       </div>
 

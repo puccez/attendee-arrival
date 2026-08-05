@@ -61,7 +61,7 @@ async function createEvent() {
           <label for="name">Nome evento</label>
           <input id="name" v-model="name" />
         </div>
-        <div style="flex: 0">
+        <div style="flex: 0 0 auto; min-width: 0">
           <label style="white-space: nowrap">
             <input
               v-model="useMyPosition"
@@ -70,7 +70,11 @@ async function createEvent() {
             />
             geofence qui (150 m)
           </label>
-          <button :disabled="creating" @click="createEvent">
+          <button
+            :disabled="creating"
+            style="white-space: nowrap"
+            @click="createEvent"
+          >
             {{ creating ? "Creo…" : "Crea evento demo qui" }}
           </button>
         </div>
