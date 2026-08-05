@@ -34,8 +34,16 @@ const deliverySchema = z.object({
     )
     .optional(),
   gps: z.object({ insideGeofence: z.boolean() }).optional(),
-  hostAttested: z.boolean().optional(),
   confirmationTap: z.boolean().optional(),
+});
+
+/**
+ * La testimonianza umana entra da una porta sua. Il borsellino dell'attendee
+ * non può dichiararla — vedi AttestationInput in check-ins.service.ts.
+ */
+const attestationSchema = z.object({
+  deviceId: z.string().min(1),
+  attendeeName: z.string().min(1).optional(),
 });
 
 const telemetrySchema = z.object({
@@ -137,6 +145,28 @@ export class CheckInController {
     if (!parsed.success) throw new BadRequestException(parsed.error.issues);
     const event = await this.events.get(eventId);
     return this.checkIns.record(event, parsed.data, this.clock.now());
+  }
+
+  /**
+   * L'host testimonia una persona: provenienza `human`.
+   *
+   * È un'azione dell'host su un attendee, non un campo di una consegna: da
+   * qui nasce anche la riga di chi non ha mai consegnato niente — telefono
+   * scarico, permessi negati, nessuna app.
+   *
+   * Nella demo la porta è aperta come tutte le altre (vedi docs/business-case.md
+   * §9.2): in produzione è qui che si aggancia l'autenticazione dell'host, ed
+   * è una guard sola perché la testimonianza ha un endpoint suo.
+   */
+  @Post("events/:eventId/attestations")
+  async attest(
+    @Param("eventId") eventId: string,
+    @Body() body: unknown,
+  ): Promise<AttendeeCheckIn> {
+    const parsed = attestationSchema.safeParse(body);
+    if (!parsed.success) throw new BadRequestException(parsed.error.issues);
+    const event = await this.events.get(eventId);
+    return this.checkIns.attest(event, parsed.data, this.clock.now());
   }
 
   /**

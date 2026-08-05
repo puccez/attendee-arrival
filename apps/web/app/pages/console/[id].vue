@@ -48,12 +48,10 @@ async function refreshCheckIns() {
   }
 }
 
+// La testimonianza ha una porta sua: è un'azione dell'host su una persona,
+// non qualcosa che il borsellino dell'attendee possa dichiarare da solo.
 async function attestManually(deviceId: string) {
-  await api.post(`/events/${eventId}/deliveries`, {
-    deviceId,
-    codes: [],
-    hostAttested: true,
-  });
+  await api.post(`/events/${eventId}/attestations`, { deviceId });
   await refreshCheckIns();
 }
 
@@ -134,6 +132,7 @@ onUnmounted(() => timers.forEach(clearInterval));
             <th>Codici</th>
             <th>Copertura</th>
             <th>Buco max</th>
+            <th>Ritardo</th>
             <th>Tap</th>
             <th>Accreditato</th>
             <th></th>
@@ -162,6 +161,17 @@ onUnmounted(() => timers.forEach(clearInterval));
                 class="muted"
                 style="font-size: 12px"
                 title="Fra due codici è passato molto tempo: può essersi allontanato, o può essere il telefono che dormiva."
+                >⚠</span
+              >
+            </td>
+            <td
+              title="Quanto era vecchia la prova più vecchia quando è arrivata. Chi è qui consegna in diretta; una prova inoltrata da un complice si porta dietro il ritardo. Non distingue il complice da chi è rimasto offline tutta la sera: sono lo stesso fatto visto da qui."
+            >
+              {{ c.quality.deliveryLagMinutes }} min
+              <span
+                v-if="c.quality.deliveryLagMinutes >= 30"
+                class="muted"
+                style="font-size: 12px"
                 >⚠</span
               >
             </td>

@@ -142,6 +142,90 @@ describe("POST /events/:id/deliveries — la cucitura via HTTP", () => {
     expect(malformed.status).toBe(400);
   });
 
+  it("la testimonianza umana entra solo dalla porta dell'host", async () => {
+    // Il borsellino dell'attendee non può dichiarare ciò che l'host ha visto:
+    // il campo non esiste più nello schema della consegna e viene ignorato.
+    const event = await createEvent();
+    const selfServed = await request(http)
+      .post(`/events/${event.id}/deliveries`)
+      .send({ deviceId: "device-furbo", codes: [], hostAttested: true });
+
+    expect(selfServed.status).toBe(201);
+    expect(selfServed.body.provenance).toBe("none");
+    expect(selfServed.body.accredited).toBe(false);
+
+    // Dalla porta dell'host, invece, la stessa persona diventa 'human'.
+    const attested = await request(http)
+      .post(`/events/${event.id}/attestations`)
+      .send({ deviceId: "device-furbo" });
+
+    expect(attested.status).toBe(201);
+    expect(attested.body.provenance).toBe("human");
+    expect(attested.body.accredited).toBe(true);
+  });
+
+  it("l'host testimonia anche chi non ha mai consegnato niente", async () => {
+    // Telefono scarico, permessi negati, nessuna app: la riga nasce qui.
+    const event = await createEvent();
+    const res = await request(http)
+      .post(`/events/${event.id}/attestations`)
+      .send({ deviceId: "senza-telefono-01", attendeeName: "Giulia" });
+
+    expect(res.status).toBe(201);
+    expect(res.body.provenance).toBe("human");
+
+    const list = await request(http).get(`/events/${event.id}/check-ins`);
+    expect(list.body).toHaveLength(1);
+    expect(list.body[0].attendeeName).toBe("Giulia");
+
+    const malformed = await request(http)
+      .post(`/events/${event.id}/attestations`)
+      .send({ attendeeName: "senza device" });
+    expect(malformed.status).toBe(400);
+  });
+
+  it("il ritardo di consegna misura l'età della prova, non la sua validità", async () => {
+    // Stesso codice, stessa validità, due storie diverse: chi consegna in
+    // diretta e chi consegna mezz'ora dopo averlo raccolto.
+    const event = await createEvent();
+    const live = new Date("2026-08-07T19:42:10Z");
+    const stale = new Date("2026-08-07T19:12:10Z");
+
+    const inDiretta = await request(http)
+      .post(`/events/${event.id}/deliveries`)
+      .send({
+        deviceId: "device-presente",
+        codes: [
+          { value: deriveRotatingCode(event.seed, live), collectedAt: live.toISOString() },
+        ],
+      });
+    expect(inDiretta.body.provenance).toBe("machine");
+    expect(inDiretta.body.quality.deliveryLagMinutes).toBe(0);
+
+    const inoltrata = await request(http)
+      .post(`/events/${event.id}/deliveries`)
+      .send({
+        deviceId: "device-inoltrato",
+        codes: [
+          { value: deriveRotatingCode(event.seed, stale), collectedAt: stale.toISOString() },
+        ],
+      });
+    expect(inoltrata.body.provenance).toBe("machine"); // accreditato lo stesso
+    expect(inoltrata.body.quality.deliveryLagMinutes).toBe(30); // ma si vede
+
+    // Il timbro è del server e non si riscrive: una riconsegna più tardi
+    // non ringiovanisce la prova né la invecchia.
+    const riconsegna = await request(http)
+      .post(`/events/${event.id}/deliveries`)
+      .send({
+        deviceId: "device-inoltrato",
+        codes: [
+          { value: deriveRotatingCode(event.seed, stale), collectedAt: stale.toISOString() },
+        ],
+      });
+    expect(riconsegna.body.quality.deliveryLagMinutes).toBe(30);
+  });
+
   it("le sessioni si accumulano fra consegne: l'uscita chiude, il rientro riapre", async () => {
     // Prima consegna: sessione ancora aperta. Seconda: la stessa sessione
     // arriva chiusa, più una nuova dopo il rientro. I minuti fuori non contano.
