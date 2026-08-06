@@ -307,4 +307,53 @@ describe("POST /events/:id/deliveries — la cucitura via HTTP", () => {
     expect(res.status).toBe(200);
     expect(res.body.code).toBe(deriveRotatingCode(event.seed, NOW));
   });
+
+  it("la porta del seme consegna il seme dell'evento al notaio", async () => {
+    // Chi gioca il ruolo del notaio (telefono dell'host, ESP32 provisionato)
+    // lo scarica una volta e poi deriva in locale, anche senza rete.
+    const event = await createEvent();
+    const res = await request(http).get(`/events/${event.id}/seed`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ seed: event.seed });
+    expect(deriveRotatingCode(res.body.seed, NOW)).toBe(
+      deriveRotatingCode(event.seed, NOW),
+    );
+
+    const missing = await request(http).get("/events/non-esiste/seed");
+    expect(missing.status).toBe(404);
+  });
+
+  it("il seme non trapela da nessun'altra porta", async () => {
+    // L'attendee riceve il seme via radio, mai via API: le risposte che un
+    // borsellino può vedere non devono contenerlo — né come campo, né
+    // annegato da qualche parte nel corpo.
+    const event = await createEvent();
+    const collectedAt = new Date("2026-08-07T19:42:10Z");
+
+    const dettagli = await request(http).get(`/events/${event.id}`);
+    expect(dettagli.status).toBe(200);
+    expect(dettagli.body.seed).toBeUndefined();
+    expect(JSON.stringify(dettagli.body)).not.toContain(event.seed);
+
+    const consegna = await request(http)
+      .post(`/events/${event.id}/deliveries`)
+      .send({
+        deviceId: "device-anna",
+        codes: [
+          {
+            value: deriveRotatingCode(event.seed, collectedAt),
+            collectedAt: collectedAt.toISOString(),
+          },
+        ],
+      });
+    expect(consegna.status).toBe(201);
+    expect(JSON.stringify(consegna.body)).not.toContain(event.seed);
+
+    const lista = await request(http).get(`/events/${event.id}/check-ins`);
+    expect(JSON.stringify(lista.body)).not.toContain(event.seed);
+
+    const codice = await request(http).get(`/events/${event.id}/code`);
+    expect(JSON.stringify(codice.body)).not.toContain(event.seed);
+  });
 });

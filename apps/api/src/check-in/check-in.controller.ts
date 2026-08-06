@@ -111,6 +111,23 @@ export class CheckInController {
   }
 
   /**
+   * La porta del seme: chi gioca il ruolo del notaio lo scarica una volta e
+   * poi deriva in locale — la rete del locale può morire, l'emissione no.
+   *
+   * È la porta dell'host, come la testimonianza: tre porte, tre livelli di
+   * fiducia (consegna / testimonianza / seme). Nel livello demo la
+   * credenziale è il possesso dell'id evento, come per la console — limite
+   * dichiarato (docs/business-case.md §9.2); in produzione è qui che si
+   * aggancia l'host token. Il seme non passa MAI dalle porte dell'attendee:
+   * chi deve solo riceverlo via radio non deve poterlo vedere.
+   */
+  @Get("events/:eventId/seed")
+  async eventSeed(@Param("eventId") eventId: string) {
+    const event = await this.events.get(eventId);
+    return { seed: event.seed };
+  }
+
+  /**
    * Token per il sync PowerSync del borsellino: firmato HS256 col JWT
    * secret Supabase, sub = deviceId. Il secret non lascia mai il server.
    */
