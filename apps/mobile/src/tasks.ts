@@ -2,6 +2,7 @@ import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 
 import { WemeetBeacon } from "../modules/wemeet-beacon";
+import { shouldAnnounceArrival } from "./lib/arrival";
 import { BEACON_UUID } from "./lib/config";
 import { presentArrival } from "./lib/notifications";
 import { normalizeSighting } from "./beacon/normalize";
@@ -15,6 +16,7 @@ import {
   markArrival,
   openPresenceSession,
   readSetting,
+  writeSetting,
 } from "./wallet/wallet";
 
 /**
@@ -34,6 +36,10 @@ export const GEOFENCE_TASK = "wemeet-geofence";
 
 export const SETTING_EVENT_ID = "event-id";
 export const SETTING_EVENT_NAME = "event-name";
+/** L'id dell'evento in cui risultiamo dentro, "" se fuori: vedi lib/arrival. */
+export const SETTING_FENCE_STATE = "fence-state";
+/** La firma della region registrata: ri-registrare senza motivo rigioca lo stato iniziale. */
+export const SETTING_FENCE_REGION = "fence-region";
 
 /**
  * Porta nel borsellino tutto ciò che il canale radio ha accumulato mentre
@@ -77,9 +83,17 @@ export async function handleArrival(options: {
   }
 
   if (options.notify) {
-    const eventName = (await readSetting(SETTING_EVENT_NAME)) ?? "il WeMeet";
-    await presentArrival(eventId, eventName).catch(() => {});
-    await logDeviceEvent(eventId, "notifica_mostrata");
+    // L'annuncio scatta sulla transizione, non sullo stato: iOS rigioca
+    // «sei dentro» a ogni ripristino del task e a ogni riaccensione dello
+    // schermo, e ogni replica annunciata è una notifica doppia.
+    if (shouldAnnounceArrival(await readSetting(SETTING_FENCE_STATE), eventId)) {
+      const eventName = (await readSetting(SETTING_EVENT_NAME)) ?? "il WeMeet";
+      await presentArrival(eventId, eventName).catch(() => {});
+      await logDeviceEvent(eventId, "notifica_mostrata");
+    } else {
+      await logDeviceEvent(eventId, "notifica_taciuta", "risultavi già dentro");
+    }
+    await writeSetting(SETTING_FENCE_STATE, eventId);
   }
 
   const deviceId = await getDeviceId();
@@ -107,6 +121,9 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
     });
   } else if (eventType === Location.GeofencingEventType.Exit) {
     // All'uscita si campiona un'ultima volta: è l'altro estremo del dwell.
+    // E si torna «fuori»: il prossimo ingresso è una transizione vera,
+    // quindi verrà riannunciato.
+    await writeSetting(SETTING_FENCE_STATE, "");
     await handleArrival({
       gpsInside: false,
       notify: false,
@@ -156,6 +173,16 @@ export async function startGeofence(geofence: {
   lng: number;
   radiusM: number;
 }): Promise<void> {
+  // Registrare è idempotente solo in apparenza: ogni registrazione chiede
+  // al sistema lo stato iniziale, e se sei già dentro quello stato torna
+  // alla task come un Enter. L'app chiama questa funzione a ogni apertura —
+  // se la region è la stessa e il task già corre, non c'è niente da fare.
+  const signature = `${geofence.lat},${geofence.lng},${geofence.radiusM}`;
+  const running = await Location.hasStartedGeofencingAsync(GEOFENCE_TASK).catch(
+    () => false,
+  );
+  if (running && (await readSetting(SETTING_FENCE_REGION)) === signature) return;
+
   await Location.startGeofencingAsync(GEOFENCE_TASK, [
     {
       latitude: geofence.lat,
@@ -165,10 +192,15 @@ export async function startGeofence(geofence: {
       notifyOnExit: true,
     },
   ]);
+  await writeSetting(SETTING_FENCE_REGION, signature);
 }
 
 export async function stopGeofence(): Promise<void> {
   if (await TaskManager.isTaskRegisteredAsync(GEOFENCE_TASK)) {
     await Location.stopGeofencingAsync(GEOFENCE_TASK).catch(() => {});
   }
+  // Fine dell'evento: fuori dalla region e senza firma, così il prossimo
+  // evento registra da capo e riannuncia.
+  await writeSetting(SETTING_FENCE_STATE, "");
+  await writeSetting(SETTING_FENCE_REGION, "");
 }
