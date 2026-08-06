@@ -36,10 +36,19 @@ export interface NativeSighting {
   at?: number;
 }
 
+/** Lo stato dell'emissione in modalità notaio: un notaio morto è rumoroso. */
+export interface NotaryStatePayload {
+  advertising: boolean;
+  /** 'acceso' | 'spento' | 'negato' | 'non supportato' | 'in avvio' */
+  bluetooth?: string;
+  error?: string;
+}
+
 export type WemeetBeaconEvents = {
   onBeaconRanged: (payload: { beacons: NativeSighting[] }) => void;
   onRegionEnter: (payload: { uuid: string }) => void;
   onRegionExit: (payload: { uuid: string }) => void;
+  onNotaryState: (payload: NotaryStatePayload) => void;
 };
 
 export interface BeaconPermissionStatus {
@@ -71,6 +80,21 @@ declare class WemeetBeaconModuleType extends NativeModule<WemeetBeaconEvents> {
    * ritorna sempre vuoto: lì il risveglio consegna direttamente gli eventi.
    */
   drainBackgroundSightingsAsync(): Promise<NativeSighting[]>;
+  /**
+   * Modalità notaio: mette in onda il frame iBeacon dell'evento, identico
+   * a quello dell'ESP32. Richiamarla con major/minor nuovi È la rotazione
+   * del codice (la guida il driver JS, src/notary). Android emette dentro
+   * un foreground service e continua a schermo spento — `options` è il
+   * testo della sua notifica persistente; iOS emette solo in foreground
+   * (vincolo di piattaforma) e le opzioni le ignora.
+   */
+  startAdvertisingAsync(
+    uuid: string,
+    major: number,
+    minor: number,
+    options: { title: string; body: string },
+  ): Promise<void>;
+  stopAdvertisingAsync(): Promise<void>;
 }
 
 export const WemeetBeacon =

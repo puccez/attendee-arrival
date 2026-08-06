@@ -9,12 +9,26 @@
     android:usesPermissionFlags="neverForLocation"
     tools:targetApi="s" />
 
+  <!-- Modalità notaio: il telefono dell'host emette il frame dell'evento
+       (BLUETOOTH_ADVERTISE) e resta vivo a schermo spento dentro un
+       foreground service di tipo connectedDevice. -->
+  <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
   <application>
     <!-- Riceve gli avvistamenti quando l'app non è viva: il sistema sveglia
          il receiver, che accoda il frame e fa scattare la notifica one-tap. -->
     <receiver
       android:name="com.firstlayer.wemeetbeacon.BeaconScanReceiver"
       android:exported="false" />
+
+    <!-- Tiene vivo il processo del notaio a schermo spento: la rotazione
+         del codice la guida il driver JS, il servizio esiste e basta. -->
+    <service
+      android:name="com.firstlayer.wemeetbeacon.NotaryService"
+      android:exported="false"
+      android:foregroundServiceType="connectedDevice" />
   </application>
 
 </manifest>

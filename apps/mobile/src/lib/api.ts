@@ -85,6 +85,16 @@ export function fetchCurrentCode(
   return request(`/events/${eventId}/code`);
 }
 
+/**
+ * La porta del seme: la interroga solo la modalità notaio, una volta per
+ * evento, e da lì in poi deriva in locale. Il seme non entra MAI nel
+ * borsellino né nella telemetria — vive nelle impostazioni del notaio e
+ * viene cancellato quando l'incarico finisce (src/notary).
+ */
+export function fetchEventSeed(eventId: string): Promise<{ seed: string }> {
+  return request(`/events/${eventId}/seed`);
+}
+
 export interface TelemetryPayload {
   deviceId: string;
   events: { at: string; kind: string; detail?: string }[];

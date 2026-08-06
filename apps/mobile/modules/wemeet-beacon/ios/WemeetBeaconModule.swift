@@ -1,5 +1,7 @@
+import CoreBluetooth
 import CoreLocation
 import ExpoModulesCore
+import UIKit
 
 internal final class InvalidUuidException: GenericException<String> {
   override var reason: String {
@@ -20,6 +22,14 @@ internal final class InvalidUuidException: GenericException<String> {
  L'UUID è l'identità su cui il sistema sveglia l'app: per questo non ruota.
  Ciò che ruota sta in major/minor.
 
+ La modalità notaio percorre la strada inversa: `CBPeripheralManager` mette
+ in onda lo stesso frame iBeacon del firmware (è CoreLocation a comporlo,
+ via `CLBeaconRegion.peripheralData`). Vincolo di piattaforma non
+ aggirabile: iOS ferma l'advertising iBeacon appena l'app lascia il primo
+ piano — il limite si dichiara nell'interfaccia, non si nasconde. Finché la
+ schermata del notaio è aperta teniamo lo schermo sveglio (idle timer
+ disattivato).
+
  Precedente: ProxiMate (FirstLayer-SRL/ProxiMate-ibeacon), stessa struttura
  con restoration identifier per il background.
  */
@@ -29,11 +39,15 @@ public class WemeetBeaconModule: Module {
   private var rangedUuid: UUID?
   private var monitoredUuid: UUID?
   private var permissionContinuation: CheckedContinuation<[String: String], Never>?
+  private var peripheral: CBPeripheralManager?
+  private var peripheralDelegate: NotaryPeripheralDelegate?
+  /** Ciò che deve stare in onda adesso: si (ri)parte da qui a ogni poweredOn. */
+  private var onAir: [String: Any]?
 
   public func definition() -> ModuleDefinition {
     Name("WemeetBeacon")
 
-    Events("onBeaconRanged", "onRegionEnter", "onRegionExit")
+    Events("onBeaconRanged", "onRegionEnter", "onRegionExit", "onNotaryState")
 
     OnCreate {
       DispatchQueue.main.async { [weak self] in
@@ -126,13 +140,94 @@ public class WemeetBeaconModule: Module {
       []
     }
 
+    // Modalità notaio: mette in onda il frame dell'evento. Richiamarla con
+    // major/minor nuovi È la rotazione del codice — il driver JS la invoca
+    // a ogni finestra da 30 s. Le opzioni (titolo/corpo della notifica del
+    // servizio) servono solo ad Android: qui si ignorano.
+    AsyncFunction("startAdvertisingAsync") { (uuid: String, major: Int, minor: Int, _: [String: Any]) in
+      guard let parsed = UUID(uuidString: uuid) else {
+        throw InvalidUuidException(uuid)
+      }
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        if self.peripheral == nil {
+          let delegate = NotaryPeripheralDelegate(module: self)
+          self.peripheralDelegate = delegate
+          self.peripheral = CBPeripheralManager(delegate: delegate, queue: .main)
+        }
+        // Il frame lo compone CoreLocation: stessi byte del firmware,
+        // stessa potenza calibrata dichiarata (-59 dBm a 1 m).
+        let region = CLBeaconRegion(
+          uuid: parsed,
+          major: CLBeaconMajorValue(major),
+          minor: CLBeaconMinorValue(minor),
+          identifier: "wemeet-notaio-emissione"
+        )
+        let data = region.peripheralData(withMeasuredPower: NSNumber(value: -59))
+        self.onAir = (data as NSDictionary) as? [String: Any]
+        // Lo schermo resta acceso: su iPhone l'emissione vive solo in
+        // foreground, e lo standby automatico la ucciderebbe in silenzio.
+        UIApplication.shared.isIdleTimerDisabled = true
+        self.flushAdvertising()
+      }
+    }
+
+    AsyncFunction("stopAdvertisingAsync") {
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        self.onAir = nil
+        self.peripheral?.stopAdvertising()
+        UIApplication.shared.isIdleTimerDisabled = false
+        self.emitNotaryState()
+      }
+    }
+
     OnDestroy {
       DispatchQueue.main.async { [weak self] in
-        guard let self, let manager = self.manager else { return }
-        if let uuid = self.rangedUuid {
+        guard let self else { return }
+        if let manager = self.manager, let uuid = self.rangedUuid {
           manager.stopRangingBeacons(satisfying: CLBeaconIdentityConstraint(uuid: uuid))
         }
+        if self.onAir != nil {
+          self.peripheral?.stopAdvertising()
+          UIApplication.shared.isIdleTimerDisabled = false
+        }
       }
+    }
+  }
+
+  /* ------------------------------------------------------ emissione */
+
+  /** (Ri)mette in onda `onAir`, se la radio è accesa. */
+  fileprivate func flushAdvertising() {
+    guard let peripheral, peripheral.state == .poweredOn else {
+      emitNotaryState()
+      return
+    }
+    if peripheral.isAdvertising {
+      peripheral.stopAdvertising()
+    }
+    if let onAir {
+      peripheral.startAdvertising(onAir)
+    }
+  }
+
+  fileprivate func emitNotaryState(error: String? = nil) {
+    var payload: [String: Any] = [
+      "advertising": peripheral?.isAdvertising ?? false,
+      "bluetooth": Self.describeBluetooth(peripheral?.state),
+    ]
+    if let error { payload["error"] = error }
+    sendEvent("onNotaryState", payload)
+  }
+
+  private static func describeBluetooth(_ state: CBManagerState?) -> String {
+    switch state {
+    case .poweredOn: return "acceso"
+    case .poweredOff: return "spento"
+    case .unauthorized: return "negato"
+    case .unsupported: return "non supportato"
+    default: return "in avvio"
     }
   }
 
@@ -218,5 +313,31 @@ private class BeaconDelegate: NSObject, CLLocationManagerDelegate {
 
   func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
     module?.resolvePermission(manager.authorizationStatus)
+  }
+}
+
+/**
+ Il lato radio della modalità notaio. Un notaio morto dev'essere rumoroso:
+ ogni cambiamento — radio accesa, spenta, permesso negato, annuncio partito
+ o fallito — risale al JS come `onNotaryState`, e la schermata lo mostra.
+ */
+private class NotaryPeripheralDelegate: NSObject, CBPeripheralManagerDelegate {
+  private weak var module: WemeetBeaconModule?
+
+  init(module: WemeetBeaconModule) {
+    self.module = module
+  }
+
+  func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
+    // La radio è (ri)diventata utilizzabile: quel che doveva stare in onda
+    // ci torna da solo, senza aspettare la prossima rotazione.
+    module?.flushAdvertising()
+  }
+
+  func peripheralManagerDidStartAdvertising(
+    _ peripheral: CBPeripheralManager,
+    error: Error?
+  ) {
+    module?.emitNotaryState(error: error?.localizedDescription)
   }
 }

@@ -4,6 +4,9 @@ import android.Manifest
 import android.app.PendingIntent
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
+import android.bluetooth.le.AdvertiseCallback
+import android.bluetooth.le.AdvertiseData
+import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
@@ -32,6 +35,13 @@ class MonitoringOptions : Record {
   @Field val deepLink: String = ""
 }
 
+/** Il testo della notifica persistente della modalità notaio. */
+class NotaryOptions : Record {
+  @Field val title: String = "Modalità notaio attiva"
+
+  @Field val body: String = "Questo telefono sta emettendo il codice dell'evento"
+}
+
 /**
  * Il canale radio su Android: scansione diretta dei frame iBeacon.
  *
@@ -50,11 +60,12 @@ class WemeetBeaconModule : Module() {
 
   private var scanCallback: ScanCallback? = null
   private var backgroundIntent: PendingIntent? = null
+  private var advertiseCallback: AdvertiseCallback? = null
 
   override fun definition() = ModuleDefinition {
     Name("WemeetBeacon")
 
-    Events("onBeaconRanged", "onRegionEnter", "onRegionExit")
+    Events("onBeaconRanged", "onRegionEnter", "onRegionExit", "onNotaryState")
 
     Function("isSupported") {
       context.packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE) &&
@@ -132,8 +143,76 @@ class WemeetBeaconModule : Module() {
       BeaconStore.drain(context)
     }
 
+    /*
+     * Modalità notaio: il telefono dell'host mette in onda lo stesso frame
+     * dell'ESP32. Richiamare la funzione con major/minor nuovi È la
+     * rotazione del codice: la guida il driver JS a ogni finestra da 30 s —
+     * la derivazione vive in un posto solo, quello coi vettori di parità.
+     * Il foreground service (NotaryService) tiene vivo il processo a
+     * schermo spento; l'advertiser sta qui, come lo scanner.
+     */
+    AsyncFunction("startAdvertisingAsync") { uuid: String, major: Int, minor: Int, options: NotaryOptions ->
+      val advertiser = adapter()?.bluetoothLeAdvertiser
+        ?: throw CodedException("Bluetooth non disponibile o spento")
+      require(major in 0..0xFFFF && minor in 0..0xFFFF) {
+        "major/minor fuori dal campo del frame"
+      }
+
+      NotaryService.start(context, options.title, options.body)
+      stopAdvertise()
+
+      val settings = AdvertiseSettings.Builder()
+        // Bassa latenza = intervallo ~100 ms, coerente col firmware
+        // (BEACON_ADV_INTERVAL): l'attendee campiona in low power e deve
+        // trovare il frame al primo colpo d'orecchio.
+        .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+        .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+        .setConnectable(false)
+        .build()
+      val data = AdvertiseData.Builder()
+        .setIncludeDeviceName(false)
+        .setIncludeTxPowerLevel(false)
+        // addManufacturerData antepone da sé il company id (0x004C):
+        // il payload parte da 0x02 0x15, come in ibeacon_frame.c.
+        .addManufacturerData(APPLE_COMPANY_ID, ibeaconPayload(uuid, major, minor))
+        .build()
+
+      val callback = object : AdvertiseCallback() {
+        override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
+          sendEvent("onNotaryState", mapOf("advertising" to true, "bluetooth" to "acceso"))
+        }
+
+        override fun onStartFailure(errorCode: Int) {
+          sendEvent(
+            "onNotaryState",
+            mapOf(
+              "advertising" to false,
+              "bluetooth" to "acceso",
+              "error" to advertiseError(errorCode),
+            ),
+          )
+        }
+      }
+      advertiseCallback = callback
+      try {
+        advertiser.startAdvertising(settings, data, callback)
+      } catch (e: SecurityException) {
+        advertiseCallback = null
+        NotaryService.stop(context)
+        throw CodedException("Permesso BLUETOOTH_ADVERTISE negato", e)
+      }
+    }
+
+    AsyncFunction("stopAdvertisingAsync") {
+      stopAdvertise()
+      NotaryService.stop(context)
+      sendEvent("onNotaryState", mapOf("advertising" to false))
+    }
+
     OnDestroy {
       stopForegroundScan()
+      stopAdvertise()
+      NotaryService.stop(context)
     }
   }
 
@@ -228,8 +307,50 @@ class WemeetBeaconModule : Module() {
     }
   }
 
+  /* ----------------------------------------------------------- emissione */
+
+  /**
+   * Il payload iBeacon senza company id: tipo, lunghezza, UUID, major,
+   * minor, potenza calibrata — speculare a ibeacon_frame.c e al parser
+   * condiviso (src/lib/ibeacon.ts), che è chi lo rileggerà dall'altra parte.
+   */
+  private fun ibeaconPayload(uuid: String, major: Int, minor: Int): ByteArray {
+    val parsed = UUID.fromString(uuid)
+    val payload = ByteBuffer.allocate(23)
+    payload.put(0x02.toByte())
+    payload.put(0x15.toByte())
+    payload.putLong(parsed.mostSignificantBits)
+    payload.putLong(parsed.leastSignificantBits)
+    payload.putShort(major.toShort())
+    payload.putShort(minor.toShort())
+    payload.put(MEASURED_POWER_DBM)
+    return payload.array()
+  }
+
+  private fun advertiseError(code: Int): String = when (code) {
+    AdvertiseCallback.ADVERTISE_FAILED_DATA_TOO_LARGE -> "frame troppo grande"
+    AdvertiseCallback.ADVERTISE_FAILED_TOO_MANY_ADVERTISERS -> "radio satura di annunci"
+    AdvertiseCallback.ADVERTISE_FAILED_ALREADY_STARTED -> "annuncio già in onda"
+    AdvertiseCallback.ADVERTISE_FAILED_INTERNAL_ERROR -> "errore interno del Bluetooth"
+    AdvertiseCallback.ADVERTISE_FAILED_FEATURE_UNSUPPORTED -> "questo telefono non sa emettere"
+    else -> "errore $code"
+  }
+
+  private fun stopAdvertise() {
+    val callback = advertiseCallback ?: return
+    advertiseCallback = null
+    try {
+      adapter()?.bluetoothLeAdvertiser?.stopAdvertising(callback)
+    } catch (_: Exception) {
+      // Bluetooth spento nel frattempo: niente da fermare.
+    }
+  }
+
   private companion object {
     const val APPLE_COMPANY_ID = 0x004C
     const val BACKGROUND_REQUEST_CODE = 4201
+
+    /** Potenza calibrata a 1 m dichiarata nel frame: -59 dBm (config.h). */
+    const val MEASURED_POWER_DBM = (-59).toByte()
   }
 }

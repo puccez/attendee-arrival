@@ -3,6 +3,7 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +14,7 @@ import {
 
 import { WemeetBeacon } from "./modules/wemeet-beacon";
 import { useBeaconChannel } from "./src/beacon/useBeaconChannel";
+import { useNotary, type NotaryHandle } from "./src/notary/useNotary";
 import { fetchCurrentCode, fetchEvent, type ApiCheckIn, type ApiEvent } from "./src/lib/api";
 import { BEACON_UUID, FLUSH_INTERVAL_MS } from "./src/lib/config";
 import { onArrivalTapped } from "./src/lib/notifications";
@@ -89,8 +91,12 @@ export default function App() {
   const [serverCode, setServerCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [view, setView] = useState<"attendee" | "notaio">("attendee");
 
   const beacon = useBeaconChannel(eventId);
+  // Alla radice, non nella schermata: la rotazione del codice deve
+  // sopravvivere alla navigazione (su Android emette a schermo spento).
+  const notary = useNotary(eventId, event?.name ?? null);
   const deepLink = Linking.useURL();
 
   const refreshWallet = useCallback(async () => {
@@ -218,12 +224,16 @@ export default function App() {
   };
 
   const forgetEvent = async () => {
+    // L'igiene del seme: lasciare l'evento revoca anche l'incarico del
+    // notaio — un telefono d'host non accumula segreti di eventi passati.
+    await notary.deactivate();
     await stopGeofence();
     await WemeetBeacon?.stopMonitoringAsync().catch(() => {});
     await writeSetting(SETTING_EVENT_ID, "");
     setEventId(null);
     setEvent(null);
     setCheckIn(null);
+    setView("attendee");
   };
 
   if (!eventId) {
@@ -236,6 +246,16 @@ export default function App() {
           setEventId(id.trim());
           await grantPermissions();
         }}
+      />
+    );
+  }
+
+  if (view === "notaio") {
+    return (
+      <NotaryScreen
+        notary={notary}
+        eventName={event?.name ?? "il tuo evento"}
+        onBack={() => setView("attendee")}
       />
     );
   }
@@ -348,6 +368,7 @@ export default function App() {
 
         <Backstage
           beacon={beacon}
+          notary={notary}
           serverCode={serverCode}
           collected={collected}
           pending={pending}
@@ -356,6 +377,7 @@ export default function App() {
           permissions={permissions}
           onDeliver={deliverNow}
           onForget={forgetEvent}
+          onNotary={() => setView("notaio")}
         />
 
         <Text style={styles.footer}>
@@ -393,7 +415,7 @@ export default function App() {
  * il registro della loro schermata di lancio. Il velo, senza gradienti in
  * dotazione, è fatto di cerchi concentrici traslucidi.
  */
-function Hero({ name }: { name: string }) {
+function Hero({ name, pill = "In corso" }: { name: string; pill?: string }) {
   return (
     <View style={styles.hero}>
       <View style={[styles.glow, styles.glowBig]} />
@@ -401,7 +423,7 @@ function Hero({ name }: { name: string }) {
       <View style={[styles.glow, styles.glowSmall]} />
       <View style={styles.heroFoot}>
         <View style={styles.pillOnPhoto}>
-          <Text style={styles.pillOnPhotoText}>In corso</Text>
+          <Text style={styles.pillOnPhotoText}>{pill}</Text>
         </View>
         <Text style={styles.heroTitle}>{name}</Text>
       </View>
@@ -477,6 +499,7 @@ function ManualCode({ onSubmit }: { onSubmit: (code: string) => Promise<void> })
  */
 function Backstage({
   beacon,
+  notary,
   serverCode,
   collected,
   pending,
@@ -485,8 +508,10 @@ function Backstage({
   permissions,
   onDeliver,
   onForget,
+  onNotary,
 }: {
   beacon: ReturnType<typeof useBeaconChannel>;
+  notary: NotaryHandle;
   serverCode: string | null;
   collected: number;
   pending: number;
@@ -495,6 +520,7 @@ function Backstage({
   permissions: PermissionReport | null;
   onDeliver: () => void;
   onForget: () => void;
+  onNotary: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const radioSays = beacon.lastCode;
@@ -554,12 +580,126 @@ function Backstage({
             />
           ) : null}
           <KV k="device" v={deviceId.slice(0, 8)} />
+          {notary.active ? (
+            <KV
+              k="notaio"
+              v={notary.emitting ? `in onda · ${notary.code ?? ""}` : "attivo, radio ferma"}
+            />
+          ) : null}
           <View style={styles.backstageActions}>
             <PillButton label="Consegna adesso" tone="soft" onPress={onDeliver} />
             <PillButton label="Cambia evento" tone="soft" onPress={onForget} />
           </View>
+          <View style={styles.backstageActions}>
+            <PillButton
+              label={notary.active ? "Modalità notaio · in corso" : "Conduci tu? Modalità notaio"}
+              tone="soft"
+              onPress={onNotary}
+            />
+          </View>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+/**
+ * La superficie dell'host: il telefono che gioca il ruolo del notaio.
+ *
+ * Le due promesse della spec, entrambe a schermo: lo stato dell'emissione
+ * in evidenza (un notaio morto è rumoroso, non silenzioso) e il limite di
+ * piattaforma dichiarato invece che scoperto a fine serata — su iPhone si
+ * emette a schermata aperta, su Android anche in tasca.
+ */
+function NotaryScreen({
+  notary,
+  eventName,
+  onBack,
+}: {
+  notary: NotaryHandle;
+  eventName: string;
+  onBack: () => void;
+}) {
+  const emissione = notary.active
+    ? notary.emitting
+      ? {
+          tone: T.ok,
+          titolo: "In onda",
+          sotto: "I telefoni intorno sentono il codice dell'evento.",
+        }
+      : {
+          tone: T.warn,
+          titolo: "Attivo, ma la radio tace",
+          sotto:
+            notary.bluetooth === "spento"
+              ? "Il Bluetooth è spento: riaccendilo e riparte da solo."
+              : "Un momento: la radio si sta preparando.",
+        }
+    : {
+        tone: T.faint,
+        titolo: "Non stai emettendo",
+        sotto: "Attiva la modalità notaio per far esistere il canale radio.",
+      };
+
+  return (
+    <View style={styles.screen}>
+      <StatusBar style="light" />
+      <ScrollView contentContainerStyle={styles.content}>
+        <Hero name={eventName} pill="Modalità notaio" />
+
+        <View style={[styles.card, styles.sheet]}>
+          <Text style={styles.cardSub}>Il Codice Rotante in onda adesso</Text>
+          <Text style={styles.notaryCode}>
+            {notary.active && notary.code ? notary.code : "——————"}
+          </Text>
+          <Text style={styles.cardSub}>
+            Cambia ogni 30 secondi, insieme alla console: chi verifica con uno
+            scanner deve leggere lo stesso numero.
+          </Text>
+        </View>
+
+        <View style={[styles.card, styles.statusRow]}>
+          <View style={[styles.dot, { backgroundColor: emissione.tone }]} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.statusTitle}>{emissione.titolo}</Text>
+            <Text style={styles.cardSub}>{emissione.sotto}</Text>
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>
+            {Platform.OS === "ios"
+              ? "Su iPhone si emette a schermata aperta"
+              : "Puoi mettere il telefono in tasca"}
+          </Text>
+          <Text style={styles.cardSub}>
+            {Platform.OS === "ios"
+              ? "È un limite di iOS, non un guasto: l'emissione vive finché questa schermata è aperta. Tieni il telefono in carica — a non farlo spegnere ci pensiamo noi."
+              : "Su Android l'emissione continua a schermo spento, tutta la sera: la notifica fissa è lì per ricordarti che stai emettendo."}
+          </Text>
+          <Text style={styles.cardSub}>
+            Consuma poco: un annuncio radio a bassissima energia, meno dello
+            schermo acceso.
+          </Text>
+        </View>
+
+        {notary.error ? <Text style={styles.note}>{notary.error}</Text> : null}
+        {notary.busy ? <ActivityIndicator color={T.brand} /> : null}
+
+        <View style={{ marginHorizontal: 16, gap: 8 }}>
+          {notary.active ? (
+            <PillButton label="Ferma l'emissione" onPress={() => void notary.deactivate()} />
+          ) : (
+            <PillButton label="Inizia a emettere" onPress={() => void notary.activate()} />
+          )}
+          <PillButton label="Torna all'evento" tone="soft" onPress={onBack} />
+        </View>
+
+        <Text style={styles.footer}>
+          Il notaio è un ruolo, non un oggetto: stasera lo gioca questo
+          telefono. Fermarlo cancella il seme.
+        </Text>
+      </ScrollView>
     </View>
   );
 }
@@ -777,6 +917,18 @@ const styles = StyleSheet.create({
 
   cardTitle: { color: T.inkStrong, fontSize: 17, fontWeight: "600" },
   cardSub: { color: T.muted, fontSize: 15, lineHeight: 21 },
+
+  /* Il codice del notaio: grande come sulla console, si legge dall'altra
+     parte del tavolo. */
+  notaryCode: {
+    color: T.inkStrong,
+    fontSize: 44,
+    fontWeight: "700",
+    letterSpacing: 10,
+    textAlign: "center",
+    paddingVertical: 8,
+    fontVariant: ["tabular-nums"],
+  },
   note: { color: T.inkStrong, fontSize: 14, marginHorizontal: 32, marginBottom: 12 },
 
   input: {

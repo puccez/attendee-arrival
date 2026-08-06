@@ -17,8 +17,11 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Serve a rilevare il tuo arrivo al WeMeet e a sentire il beacon del locale.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Serve a preparare il check-in quando entri nel locale, anche col telefono in tasca. La posizione non viene mai usata come prova.",
-        "NSBluetoothAlwaysUsageDescription": "Serve ad ascoltare il codice del beacon del locale: è la prova che eri lì.",
-        "UIBackgroundModes": ["location", "bluetooth-central"]
+        "NSBluetoothAlwaysUsageDescription": "Serve ad ascoltare il codice del beacon del locale — è la prova che eri lì — e, in modalità notaio, a emetterlo dal telefono di chi conduce l'evento.",
+        "UIBackgroundModes": [
+          "location",
+          "bluetooth-central"
+        ]
       }
     },
     "android": {
@@ -32,7 +35,9 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_LOCATION",
         "android.permission.POST_NOTIFICATIONS",
-        "android.permission.RECEIVE_BOOT_COMPLETED"
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.BLUETOOTH_ADVERTISE",
+        "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"
       ]
     },
     "plugins": [
