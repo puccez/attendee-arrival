@@ -133,14 +133,22 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
 });
 
 /*
- * La region del beacon delimita la presenza.
+ * La region del beacon delimita la presenza — e per gli eventi itineranti È
+ * il geofence: mobile, centrato su chi emette.
  *
  * Un beacon non-connettibile non può dirci quando te ne vai: non ti vede
  * nemmeno. Ma CoreLocation sì — `didExitRegion` è l'unico segnale di fine
- * presenza che abbiamo, l'equivalente del disconnect BLE. Senza queste due
+ * presenza che abbiamo, l'equivalente del disconnect BLE. Senza queste
  * righe la copertura misurerebbe l'arco fra il primo e l'ultimo codice, e
  * conterebbe come permanenza anche il tempo passato dall'altra parte della
  * città.
+ *
+ * L'ingresso in region è anche l'altro innesco dell'Arrivo: a una
+ * passeggiata di due chilometri il cerchio GPS disegnato alla creazione è
+ * carta straccia, e chi raggiunge il gruppo in ritardo viene svegliato dal
+ * beacon, non da un punto sulla mappa. Entrambi gli inneschi passano dallo
+ * stesso stato di transizione (lib/arrival): qualunque cosa ti abbia
+ * svegliato, l'annuncio è uno.
  *
  * Come i task, si registrano qui e non in React: gli ingressi e le uscite
  * arrivano quando l'interfaccia non è viva.
@@ -151,6 +159,11 @@ WemeetBeacon?.addListener("onRegionEnter", () => {
     if (!eventId) return;
     await logDeviceEvent(eventId, "region_ingresso");
     await openPresenceSession(eventId);
+    await handleArrival({
+      gpsInside: false,
+      notify: true,
+      reason: "region_ingresso",
+    });
   })();
 });
 
@@ -160,6 +173,14 @@ WemeetBeacon?.addListener("onRegionExit", () => {
     if (!eventId) return;
     await logDeviceEvent(eventId, "region_uscita");
     await closePresenceSession(eventId);
+    // Senza geofence GPS la region è il confine: uscirne — con un notaio
+    // mobile significa «l'evento è uscito da te» — rimette fuori, e il
+    // prossimo ingresso è una transizione vera da riannunciare. Quando un
+    // geofence GPS c'è, il confine resta suo: un buco radio di 45 secondi
+    // dentro il locale non deve riarmare la notifica.
+    if (!(await readSetting(SETTING_FENCE_REGION))) {
+      await writeSetting(SETTING_FENCE_STATE, "");
+    }
     // La chiusura vale quanto la raccolta: si prova a consegnarla subito.
     const deviceId = await getDeviceId();
     await flush(deviceId).catch(() => {});
