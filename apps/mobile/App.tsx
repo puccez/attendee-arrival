@@ -48,7 +48,35 @@ import {
  * Il beacon fa da notaio (ancora spazio-temporale), il telefono fa da
  * sensore: raccoglie i Codici Rotanti e ne fa eco al server. Non giudica
  * niente — la logica di fiducia vive tutta dietro la cucitura di verifica.
+ *
+ * Il linguaggio visivo è quello dell'app WeMeet (docs/design.md): sabbia,
+ * card bianche senza bordo, pastiglie piene dove si tocca, corallo solo
+ * dove si clicca. E la regola di §7: chi è a un aperitivo legge «Ci sei»,
+ * non «provenance: machine» — il vocabolario della verifica sta chiuso in
+ * «Dietro le quinte».
  */
+
+/* Il blocco :root di docs/design.md §8, tradotto in costanti. */
+const T = {
+  brand: "#ff4758",
+  brandTint: "rgba(255, 71, 88, 0.08)",
+  surface: "#ffffff",
+  surfaceSunken: "#f5f5f5",
+  sandDeep: "#efe9e2",
+  line: "#e5e5e5",
+  ink: "#171717",
+  inkStrong: "#262626",
+  body: "#404040",
+  muted: "#525252",
+  faint: "#a3a3a3",
+  tile: "#dfe8e9",
+  ok: "#16a34a",
+  warn: "#eab308",
+  bad: "#dc2626",
+  rCard: 16,
+  rFull: 999,
+};
+
 export default function App() {
   const [eventId, setEventId] = useState<string | null>(null);
   const [event, setEvent] = useState<ApiEvent | null>(null);
@@ -212,6 +240,259 @@ export default function App() {
     );
   }
 
+  /* ------------------------------------------------- lo stato, in parole */
+
+  const confermato = checkIn?.accredited === true;
+  const stato = confermato
+    ? {
+        tone: T.ok,
+        titolo: "Ci sei",
+        sotto:
+          (checkIn?.quality.coverageMinutes ?? 0) >= 1
+            ? `Sei qui da ${checkIn!.quality.coverageMinutes} minut${checkIn!.quality.coverageMinutes === 1 ? "o" : "i"}. Puoi rimettere il telefono in tasca.`
+            : "Puoi rimettere il telefono in tasca.",
+      }
+    : pending > 0
+      ? {
+          tone: T.warn,
+          titolo: "Ti stiamo riconoscendo",
+          sotto: "Sale da solo appena c'è rete — offline non è un problema.",
+        }
+      : beacon.inRange
+        ? {
+            tone: T.warn,
+            titolo: "Il beacon ti sente",
+            sotto: "Resta pure qui: la presenza si raccoglie da sola.",
+          }
+        : {
+            tone: T.faint,
+            titolo: "Non risulti ancora qui",
+            sotto: "Avvicinati al beacon, o inserisci il codice del coordinatore.",
+          };
+
+  const permessiMancanti = permissions && !(permissions.radio && permissions.wake);
+
+  return (
+    <View style={styles.screen}>
+      <StatusBar style="light" />
+      <ScrollView contentContainerStyle={styles.content}>
+        <Hero name={event?.name ?? "WeMeet"} />
+
+        {/* La card che risale sopra la testata: la forma del dettaglio
+            evento dell'app. */}
+        <View style={[styles.card, styles.sheet]}>
+          <InfoRow
+            tile={<Text style={styles.tileGlyph}>{dayOfMonth(event?.startsAt)}</Text>}
+            strong={eventDay(event?.startsAt) ?? "Data da definire"}
+            sub={eventHours(event?.startsAt, event?.endsAt)}
+          />
+          <InfoRow
+            tile={<PinGlyph />}
+            strong="Il posto dell'evento"
+            sub={
+              event?.geofence
+                ? "Ti aspettiamo lì — l'app se ne accorge da sola"
+                : "Nessun raggio impostato per questo evento"
+            }
+          />
+          <InfoRow
+            tile={<Text style={styles.tileGlyph}>{(name || "?").charAt(0).toUpperCase()}</Text>}
+            strong="Ciao,"
+            sub={
+              <TextInput
+                style={styles.nameInline}
+                value={name}
+                onChangeText={(v) => {
+                  setName(v);
+                  void setAttendeeName(v);
+                }}
+                placeholder="scrivi il tuo nome"
+                placeholderTextColor={T.faint}
+              />
+            }
+          />
+        </View>
+
+        <View style={[styles.card, styles.statusRow]}>
+          <View style={[styles.dot, { backgroundColor: stato.tone }]} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.statusTitle}>{stato.titolo}</Text>
+            <Text style={styles.cardSub}>{stato.sotto}</Text>
+          </View>
+        </View>
+
+        {permessiMancanti ? (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Serve un permesso</Text>
+            <Text style={styles.cardSub}>
+              Senza, il telefono non può sentire il beacon da solo: resta il
+              codice a mano qui sotto.
+            </Text>
+            <PillButton label="Concedi i permessi" onPress={grantPermissions} />
+          </View>
+        ) : null}
+
+        <ManualCode
+          onSubmit={async (code) => {
+            await collectCode(eventId, code, new Date());
+            await deliverNow();
+          }}
+        />
+
+        {note ? <Text style={styles.note}>{note}</Text> : null}
+        {busy ? <ActivityIndicator color={T.brand} /> : null}
+
+        <Backstage
+          beacon={beacon}
+          serverCode={serverCode}
+          collected={collected}
+          pending={pending}
+          checkIn={checkIn}
+          deviceId={deviceId}
+          permissions={permissions}
+          onDeliver={deliverNow}
+          onForget={forgetEvent}
+        />
+
+        <Text style={styles.footer}>
+          La posizione si dichiara, la prossimità si dimostra, la permanenza si
+          conferma.
+        </Text>
+      </ScrollView>
+
+      {/* La barra d'azione a pastiglia: il posto dell'azione principale,
+          e la conferma one-tap è la nostra. */}
+      <View style={styles.actionbar}>
+        <Text style={styles.actionbarLabel}>
+          {confermato ? "Ci sei ✓" : "Non ancora confermato"}
+        </Text>
+        <Pressable
+          style={[styles.round, confermato && styles.roundDisabled]}
+          disabled={confermato}
+          onPress={confirmPresence}
+        >
+          <Text style={styles.roundText}>
+            {confermato ? "Confermato" : "Confermo, sono qui"}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+/* ------------------------------------------------------------ componenti */
+
+/**
+ * Nell'app vera qui c'è una fotografia a tutto schermo. Le foto di WeRoad
+ * sono coperte da diritti (design.md §9): resta la struttura — pastiglia di
+ * stato e titolo bianco in basso — su un fondo scuro con un velo corallo,
+ * il registro della loro schermata di lancio. Il velo, senza gradienti in
+ * dotazione, è fatto di cerchi concentrici traslucidi.
+ */
+function Hero({ name }: { name: string }) {
+  return (
+    <View style={styles.hero}>
+      <View style={[styles.glow, styles.glowBig]} />
+      <View style={[styles.glow, styles.glowMid]} />
+      <View style={[styles.glow, styles.glowSmall]} />
+      <View style={styles.heroFoot}>
+        <View style={styles.pillOnPhoto}>
+          <Text style={styles.pillOnPhotoText}>In corso</Text>
+        </View>
+        <Text style={styles.heroTitle}>{name}</Text>
+      </View>
+    </View>
+  );
+}
+
+function InfoRow({
+  tile,
+  strong,
+  sub,
+}: {
+  tile: React.ReactNode;
+  strong: string;
+  sub: React.ReactNode;
+}) {
+  return (
+    <View style={styles.infoRow}>
+      <View style={styles.tileBox}>{tile}</View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.infoStrong}>{strong}</Text>
+        {typeof sub === "string" ? <Text style={styles.infoSub}>{sub}</Text> : sub}
+      </View>
+    </View>
+  );
+}
+
+/** Un segnaposto di luogo fatto di viste: anello con punto, inchiostro su tessera. */
+function PinGlyph() {
+  return (
+    <View style={styles.pinRing}>
+      <View style={styles.pinDot} />
+    </View>
+  );
+}
+
+function ManualCode({ onSubmit }: { onSubmit: (code: string) => Promise<void> }) {
+  const [code, setCode] = useState("");
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>Il codice del coordinatore</Text>
+      <Text style={styles.cardSub}>
+        Se la radio non arriva, il codice è lo stesso: leggilo dallo schermo di
+        chi conduce l'evento. Cambia ogni 30 secondi.
+      </Text>
+      <TextInput
+        style={styles.codeInput}
+        value={code}
+        onChangeText={setCode}
+        placeholder="000000"
+        placeholderTextColor={T.faint}
+        keyboardType="number-pad"
+        maxLength={6}
+      />
+      <PillButton
+        label="Aggiungi al borsellino"
+        tone="soft"
+        onPress={() => {
+          if (code.length === 6) {
+            void onSubmit(code);
+            setCode("");
+          }
+        }}
+      />
+    </View>
+  );
+}
+
+/**
+ * Chi guarda la demo ha bisogno di vedere le etichette vere; chi è
+ * all'aperitivo no. Chiuse per default: sono un retroscena, non la
+ * schermata (design.md §7).
+ */
+function Backstage({
+  beacon,
+  serverCode,
+  collected,
+  pending,
+  checkIn,
+  deviceId,
+  permissions,
+  onDeliver,
+  onForget,
+}: {
+  beacon: ReturnType<typeof useBeaconChannel>;
+  serverCode: string | null;
+  collected: number;
+  pending: number;
+  checkIn: ApiCheckIn | null;
+  deviceId: string;
+  permissions: PermissionReport | null;
+  onDeliver: () => void;
+  onForget: () => void;
+}) {
+  const [open, setOpen] = useState(false);
   const radioSays = beacon.lastCode;
   const agreement =
     radioSays && serverCode
@@ -221,20 +502,17 @@ export default function App() {
       : null;
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <StatusBar style="light" />
-
-      <Text style={styles.kicker}>WeMeet check-in</Text>
-      <Text style={styles.title}>{event?.name ?? "Evento"}</Text>
-      <Text style={styles.muted}>
-        {name ? `${name} · ` : ""}device {deviceId.slice(0, 8)}
-      </Text>
-
-      <Card>
-        <Row label="Canale radio">
-          <Badge
-            tone={beacon.inRange ? "good" : beacon.listening ? "wait" : "off"}
-            text={
+    <View style={styles.backstage}>
+      <Pressable onPress={() => setOpen((v) => !v)} style={styles.backstageHead}>
+        <Text style={styles.backstageSummary}>
+          {open ? "▾" : "▸"} Dietro le quinte (demo)
+        </Text>
+      </Pressable>
+      {open ? (
+        <View style={{ gap: 6 }}>
+          <KV
+            k="canale radio"
+            v={
               !beacon.available
                 ? "modulo assente"
                 : beacon.inRange
@@ -244,106 +522,75 @@ export default function App() {
                     : "fermo"
             }
           />
-        </Row>
-        <Row label="Ultimo codice in onda">
-          <Text style={styles.code}>{radioSays ?? "——————"}</Text>
-        </Row>
-        <Row label="Codice atteso dal server">
-          <Text style={styles.code}>{serverCode ?? "——————"}</Text>
-        </Row>
-        {agreement ? (
-          <Text style={styles.muted}>
-            Radio e server: {agreement}. Stesso codice, due canali.
-          </Text>
-        ) : null}
-        {beacon.lastSighting?.rssi != null ? (
-          <Text style={styles.muted}>
-            Potenza {beacon.lastSighting.rssi} dBm — indica la distanza, non
-            prova niente.
-          </Text>
-        ) : null}
-        {beacon.error ? <Text style={styles.warn}>{beacon.error}</Text> : null}
-      </Card>
-
-      <Card>
-        <Row label="Borsellino">
-          <Text style={styles.value}>{collected} codici raccolti</Text>
-        </Row>
-        <Row label="In attesa di consegna">
-          <Text style={styles.value}>{pending}</Text>
-        </Row>
-        <Text style={styles.muted}>
-          I codici salgono da soli appena c'è rete. Offline non è un caso
-          d'errore.
-        </Text>
-      </Card>
-
-      <Card>
-        <Text style={styles.cardTitle}>Il mio check-in</Text>
-        {checkIn ? (
-          <>
-            <Row label="Provenienza">
-              <Badge
-                tone={checkIn.provenance === "none" ? "off" : "good"}
-                text={provenanceLabel(checkIn.provenance)}
+          <KV k="ultimo codice in onda" v={radioSays ?? "——————"} />
+          <KV k="codice atteso dal server" v={serverCode ?? "——————"} />
+          {agreement ? <KV k="radio e server" v={agreement} /> : null}
+          {beacon.lastSighting?.rssi != null ? (
+            <KV k="potenza" v={`${beacon.lastSighting.rssi} dBm`} />
+          ) : null}
+          {beacon.error ? <KV k="errore radio" v={beacon.error} /> : null}
+          <KV k="codici raccolti" v={String(collected)} />
+          <KV k="in attesa di consegna" v={String(pending)} />
+          {checkIn ? (
+            <>
+              <KV k="provenienza" v={provenanceLabel(checkIn.provenance)} />
+              <KV
+                k="qualità"
+                v={`${checkIn.quality.validCodes} codici · ${checkIn.quality.coverageMinutes} min${checkIn.quality.tappedNotification ? " · tap" : ""}`}
               />
-            </Row>
-            <Row label="Qualità">
-              <Text style={styles.value}>
-                {checkIn.quality.validCodes} codici · {checkIn.quality.coverageMinutes} min
-                {checkIn.quality.tappedNotification ? " · tap" : ""}
-              </Text>
-            </Row>
-            <Text style={styles.muted}>
-              {checkIn.accredited
-                ? "Presenza accreditata."
-                : "Arrivata, non ancora testimoniata."}
-            </Text>
-          </>
-        ) : (
-          <Text style={styles.muted}>
-            Ancora nessuna consegna. Avvicinati al beacon: i codici si
-            raccolgono da soli.
-          </Text>
-        )}
-      </Card>
-
-      {permissions && !(permissions.radio && permissions.wake) ? (
-        <Card>
-          <Text style={styles.cardTitle}>Permessi</Text>
-          <Text style={styles.muted}>
-            Radio {permissions.radio ? "ok" : "mancante"} · risveglio{" "}
-            {permissions.wake ? "ok" : "mancante"} · notifiche{" "}
-            {permissions.notifications ? "ok" : "mancanti"}. Nessuno è
-            obbligatorio: senza, resta il codice a mano.
-          </Text>
-          <Button label="Concedi i permessi" onPress={grantPermissions} />
-        </Card>
+              <KV k="accreditato" v={checkIn.accredited ? "sì" : "no"} />
+            </>
+          ) : (
+            <KV k="check-in" v="nessuna consegna verificata" />
+          )}
+          {permissions ? (
+            <KV
+              k="permessi"
+              v={`radio ${permissions.radio ? "ok" : "no"} · risveglio ${permissions.wake ? "ok" : "no"} · notifiche ${permissions.notifications ? "ok" : "no"}`}
+            />
+          ) : null}
+          <KV k="device" v={deviceId.slice(0, 8)} />
+          <View style={styles.backstageActions}>
+            <PillButton label="Consegna adesso" tone="soft" onPress={onDeliver} />
+            <PillButton label="Cambia evento" tone="soft" onPress={onForget} />
+          </View>
+        </View>
       ) : null}
-
-      <ManualCode
-        onSubmit={async (code) => {
-          await collectCode(eventId, code, new Date());
-          await deliverNow();
-        }}
-      />
-
-      {note ? <Text style={styles.note}>{note}</Text> : null}
-      {busy ? <ActivityIndicator color="#f5b301" /> : null}
-
-      <Button label="Consegna adesso" onPress={deliverNow} />
-      <Button label="Confermo di essere qui" onPress={confirmPresence} />
-      <Button label="Cambia evento" onPress={forgetEvent} tone="ghost" />
-
-      <Text style={styles.footer}>
-        La posizione si dichiara, la prossimità si dimostra, la permanenza si
-        conferma.
-      </Text>
-    </ScrollView>
+    </View>
   );
 }
 
-/* ------------------------------------------------------------ componenti */
+function KV({ k, v }: { k: string; v: string }) {
+  return (
+    <View style={styles.kvRow}>
+      <Text style={styles.kvKey}>{k}</Text>
+      <Text style={styles.kvVal}>{v}</Text>
+    </View>
+  );
+}
+
+function PillButton({
+  label,
+  onPress,
+  tone = "solid",
+}: {
+  label: string;
+  onPress: () => void;
+  tone?: "solid" | "soft";
+}) {
+  return (
+    <Pressable
+      style={[styles.pillButton, tone === "soft" && styles.pillButtonSoft]}
+      onPress={onPress}
+    >
+      <Text
+        style={[styles.pillButtonText, tone === "soft" && styles.pillButtonTextSoft]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
 
 function EventPicker({
   onPick,
@@ -354,112 +601,76 @@ function EventPicker({
   const [name, setName] = useState("");
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <View style={styles.screen}>
       <StatusBar style="light" />
-      <Text style={styles.kicker}>WeMeet check-in</Text>
-      <Text style={styles.title}>A quale evento vai?</Text>
-      <Text style={styles.muted}>
-        Incolla l'id dell'evento (te lo dà la console dell'host). Il telefono
-        non ha bisogno d'altro: il resto arriva dal beacon.
-      </Text>
-      <TextInput
-        style={styles.input}
-        value={id}
-        onChangeText={setId}
-        placeholder="id evento"
-        placeholderTextColor="#6b7280"
-        autoCapitalize="none"
-        autoCorrect={false}
-      />
-      <TextInput
-        style={styles.input}
-        value={name}
-        onChangeText={setName}
-        placeholder="il tuo nome (facoltativo)"
-        placeholderTextColor="#6b7280"
-      />
-      <Button
-        label="Entra"
-        onPress={() => {
-          if (id.trim()) void onPick(id, name);
-        }}
-      />
-    </ScrollView>
-  );
-}
-
-function ManualCode({ onSubmit }: { onSubmit: (code: string) => Promise<void> }) {
-  const [code, setCode] = useState("");
-  return (
-    <Card>
-      <Text style={styles.cardTitle}>Canale ottico</Text>
-      <Text style={styles.muted}>
-        Se la radio non arriva, il codice è lo stesso: leggilo dallo schermo
-        dell'host. Scade in 30 secondi, quindi uno screenshot non serve a
-        niente.
-      </Text>
-      <TextInput
-        style={styles.input}
-        value={code}
-        onChangeText={setCode}
-        placeholder="000000"
-        placeholderTextColor="#6b7280"
-        keyboardType="number-pad"
-        maxLength={6}
-      />
-      <Button
-        label="Aggiungi al borsellino"
-        onPress={() => {
-          if (code.length === 6) {
-            void onSubmit(code);
-            setCode("");
-          }
-        }}
-      />
-    </Card>
-  );
-}
-
-function Card({ children }: { children: React.ReactNode }) {
-  return <View style={styles.card}>{children}</View>;
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      {children}
+      <ScrollView contentContainerStyle={styles.content}>
+        <Hero name="A quale evento vai?" />
+        <View style={[styles.card, styles.sheet]}>
+          <Text style={styles.cardSub}>
+            Incolla l'id dell'evento (te lo dà chi conduce). Il telefono non ha
+            bisogno d'altro: il resto arriva dal beacon.
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={id}
+            onChangeText={setId}
+            placeholder="id evento"
+            placeholderTextColor={T.faint}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TextInput
+            style={styles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="il tuo nome (facoltativo)"
+            placeholderTextColor={T.faint}
+          />
+          <PillButton
+            label="Entra"
+            onPress={() => {
+              if (id.trim()) void onPick(id, name);
+            }}
+          />
+        </View>
+      </ScrollView>
     </View>
   );
 }
 
-function Badge({ tone, text }: { tone: "good" | "wait" | "off"; text: string }) {
-  return (
-    <View style={[styles.badge, styles[`badge_${tone}`]]}>
-      <Text style={styles.badgeText}>{text}</Text>
-    </View>
-  );
+/* --------------------------------------------------------------- date */
+
+/** Loro scrivono «Mercoledì, 5 Agosto 2026»: iniziali maiuscole e virgola
+ *  dopo il giorno. Stiamo somigliando a loro, non correggendoli. */
+function eventDay(iso?: string): string | null {
+  if (!iso) return null;
+  try {
+    const parti = new Intl.DateTimeFormat("it-IT", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    }).formatToParts(new Date(iso));
+    const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+    const get = (t: string) => parti.find((p) => p.type === t)?.value ?? "";
+    return `${cap(get("weekday"))}, ${get("day")} ${cap(get("month"))} ${get("year")}`;
+  } catch {
+    return new Date(iso).toDateString();
+  }
 }
 
-function Button({
-  label,
-  onPress,
-  tone = "solid",
-}: {
-  label: string;
-  onPress: () => void;
-  tone?: "solid" | "ghost";
-}) {
-  return (
-    <Pressable
-      style={[styles.button, tone === "ghost" && styles.buttonGhost]}
-      onPress={onPress}
-    >
-      <Text style={[styles.buttonText, tone === "ghost" && styles.buttonTextGhost]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
+function eventHours(startsAt?: string, endsAt?: string): string {
+  if (!startsAt || !endsAt) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const hm = (iso: string) => {
+    const d = new Date(iso);
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  return `${hm(startsAt)} – ${hm(endsAt)}`;
+}
+
+function dayOfMonth(iso?: string): string {
+  return iso ? String(new Date(iso).getDate()) : "·";
 }
 
 function provenanceLabel(provenance: ApiCheckIn["provenance"]): string {
@@ -475,50 +686,181 @@ function provenanceLabel(provenance: ApiCheckIn["provenance"]): string {
   }
 }
 
+/* ----------------------------------------------------------------- stile */
+
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#0b0f14" },
-  content: { padding: 20, paddingTop: 64, gap: 12 },
-  kicker: { color: "#f5b301", fontSize: 12, letterSpacing: 2, textTransform: "uppercase" },
-  title: { color: "#f8fafc", fontSize: 28, fontWeight: "700" },
-  muted: { color: "#94a3b8", fontSize: 13, lineHeight: 19 },
-  warn: { color: "#fca5a5", fontSize: 13 },
-  note: { color: "#f5b301", fontSize: 13 },
+  screen: { flex: 1, backgroundColor: T.sandDeep },
+  content: { paddingBottom: 120 },
+
+  /* --- testata --- */
+  hero: {
+    height: 240,
+    backgroundColor: T.ink,
+    overflow: "hidden",
+    justifyContent: "flex-end",
+    padding: 16,
+  },
+  glow: {
+    position: "absolute",
+    borderRadius: T.rFull,
+    backgroundColor: "rgba(255, 71, 88, 0.14)",
+  },
+  glowBig: { width: 420, height: 420, top: -230, right: -150 },
+  glowMid: { width: 300, height: 300, top: -170, right: -90 },
+  glowSmall: { width: 190, height: 190, top: -110, right: -40 },
+  heroFoot: { paddingBottom: 32 },
+  pillOnPhoto: {
+    alignSelf: "flex-start",
+    backgroundColor: T.surface,
+    borderRadius: T.rFull,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  pillOnPhotoText: { color: T.inkStrong, fontSize: 14, fontWeight: "500" },
+  heroTitle: {
+    color: "#fff",
+    fontSize: 30,
+    lineHeight: 33,
+    fontWeight: "700",
+    marginTop: 8,
+  },
+
+  /* --- card bianche, senza bordo: si staccano dalla sabbia per contrasto --- */
   card: {
-    backgroundColor: "#111827",
-    borderRadius: 14,
+    backgroundColor: T.surface,
+    borderRadius: T.rCard,
+    marginHorizontal: 16,
+    marginBottom: 16,
     padding: 16,
     gap: 8,
-    borderWidth: 1,
-    borderColor: "#1f2937",
   },
-  cardTitle: { color: "#e2e8f0", fontSize: 15, fontWeight: "600" },
-  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  rowLabel: { color: "#94a3b8", fontSize: 13, flexShrink: 1 },
-  value: { color: "#f8fafc", fontSize: 15, fontWeight: "600" },
-  code: { color: "#f8fafc", fontSize: 22, fontWeight: "700", letterSpacing: 4, fontVariant: ["tabular-nums"] },
-  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
-  badge_good: { backgroundColor: "#065f46" },
-  badge_wait: { backgroundColor: "#78350f" },
-  badge_off: { backgroundColor: "#374151" },
-  badgeText: { color: "#f8fafc", fontSize: 12, fontWeight: "600" },
+  sheet: { marginTop: -24 },
+
+  infoRow: { flexDirection: "row", gap: 12, alignItems: "flex-start", paddingVertical: 6 },
+  tileBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: T.tile,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tileGlyph: { color: T.inkStrong, fontSize: 17, fontWeight: "700" },
+  pinRing: {
+    width: 16,
+    height: 16,
+    borderRadius: T.rFull,
+    borderWidth: 2,
+    borderColor: T.inkStrong,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pinDot: { width: 5, height: 5, borderRadius: T.rFull, backgroundColor: T.inkStrong },
+  infoStrong: { color: T.inkStrong, fontSize: 17, fontWeight: "600" },
+  infoSub: { color: T.muted, fontSize: 15, marginTop: 1 },
+  nameInline: {
+    borderBottomWidth: 1,
+    borderBottomColor: T.line,
+    paddingVertical: 2,
+    fontSize: 15,
+    color: T.inkStrong,
+  },
+
+  /* --- stato --- */
+  statusRow: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
+  dot: { width: 10, height: 10, borderRadius: T.rFull, marginTop: 8 },
+  statusTitle: { color: T.ink, fontSize: 20, lineHeight: 24, fontWeight: "700" },
+
+  cardTitle: { color: T.inkStrong, fontSize: 17, fontWeight: "600" },
+  cardSub: { color: T.muted, fontSize: 15, lineHeight: 21 },
+  note: { color: T.inkStrong, fontSize: 14, marginHorizontal: 32, marginBottom: 12 },
+
   input: {
-    backgroundColor: "#0f172a",
-    borderColor: "#1f2937",
-    borderWidth: 1,
-    borderRadius: 10,
-    color: "#f8fafc",
+    backgroundColor: T.surfaceSunken,
+    borderRadius: 12,
+    color: T.inkStrong,
     fontSize: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  button: {
-    backgroundColor: "#f5b301",
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: "center",
+  codeInput: {
+    backgroundColor: T.surfaceSunken,
+    borderRadius: 12,
+    color: T.inkStrong,
+    fontSize: 22,
+    fontWeight: "700",
+    letterSpacing: 6,
+    textAlign: "center",
+    paddingVertical: 12,
+    fontVariant: ["tabular-nums"],
   },
-  buttonGhost: { backgroundColor: "transparent", borderWidth: 1, borderColor: "#374151" },
-  buttonText: { color: "#0b0f14", fontSize: 15, fontWeight: "700" },
-  buttonTextGhost: { color: "#e2e8f0" },
-  footer: { color: "#475569", fontSize: 12, fontStyle: "italic", marginTop: 8 },
+
+  /* Nell'app tutto ciò che si tocca è completamente arrotondato. */
+  pillButton: {
+    backgroundColor: T.brand,
+    borderRadius: T.rFull,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  pillButtonSoft: { backgroundColor: T.surfaceSunken },
+  pillButtonText: { color: "#fff", fontSize: 15, fontWeight: "600" },
+  pillButtonTextSoft: { color: T.inkStrong },
+
+  /* --- dietro le quinte --- */
+  backstage: { marginHorizontal: 16, marginBottom: 16 },
+  backstageHead: { paddingVertical: 8 },
+  backstageSummary: { color: T.muted, fontSize: 14 },
+  kvRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
+  kvKey: { color: T.faint, fontSize: 13 },
+  kvVal: {
+    color: T.inkStrong,
+    fontSize: 13,
+    fontVariant: ["tabular-nums"],
+    flexShrink: 1,
+    textAlign: "right",
+  },
+  backstageActions: { flexDirection: "row", gap: 8, marginTop: 10 },
+
+  /* --- barra d'azione --- */
+  actionbar: {
+    position: "absolute",
+    bottom: 24,
+    left: 16,
+    right: 16,
+    backgroundColor: T.surface,
+    borderRadius: T.rFull,
+    paddingVertical: 8,
+    paddingRight: 8,
+    paddingLeft: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    shadowColor: T.ink,
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  actionbarLabel: { color: T.inkStrong, fontSize: 16, flexShrink: 1 },
+  round: {
+    backgroundColor: T.brand,
+    borderRadius: T.rFull,
+    height: 48,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  roundDisabled: { backgroundColor: "rgba(255, 71, 88, 0.45)" },
+  roundText: { color: "#fff", fontSize: 15, fontWeight: "600" },
+
+  footer: {
+    color: T.faint,
+    fontSize: 12,
+    fontStyle: "italic",
+    marginHorizontal: 32,
+    marginBottom: 8,
+  },
 });
