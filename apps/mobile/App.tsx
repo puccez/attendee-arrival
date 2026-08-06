@@ -248,8 +248,12 @@ export default function App() {
         tone: T.ok,
         titolo: "Ci sei",
         sotto:
+          // «Confermati», non «sei qui da»: la copertura è il tempo che il
+          // telefono ha sentito davvero — un limite inferiore, non l'arco
+          // dall'arrivo. A schermo bloccato non si campiona, e il numero
+          // deve dire quello che è.
           (checkIn?.quality.coverageMinutes ?? 0) >= 1
-            ? `Sei qui da ${checkIn!.quality.coverageMinutes} minut${checkIn!.quality.coverageMinutes === 1 ? "o" : "i"}. Puoi rimettere il telefono in tasca.`
+            ? `${checkIn!.quality.coverageMinutes} minut${checkIn!.quality.coverageMinutes === 1 ? "o" : "i"} di presenza confermati finora. Puoi rimettere il telefono in tasca.`
             : "Puoi rimettere il telefono in tasca.",
       }
     : pending > 0

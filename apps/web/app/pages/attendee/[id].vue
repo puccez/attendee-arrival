@@ -179,8 +179,10 @@ const stato = computed(() => {
       tono: "ok",
       titolo: "Ci sei",
       sotto:
+        // «Confermati», non «sei qui da»: la copertura è il tempo sentito
+        // davvero, un limite inferiore — non l'arco dall'arrivo.
         min >= 1
-          ? `Sei qui da ${min} minut${min === 1 ? "o" : "i"}. Puoi rimettere il telefono in tasca.`
+          ? `${min} minut${min === 1 ? "o" : "i"} di presenza confermati finora. Puoi rimettere il telefono in tasca.`
           : "Puoi rimettere il telefono in tasca.",
     };
   }
