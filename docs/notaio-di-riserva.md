@@ -174,8 +174,78 @@ dopo è un upgrade di comodità, mai un prerequisito.**
 
 ---
 
+## 6. Eventi all'aperto e itineranti: il luogo è il notaio
+
+Non tutti i WeMeet stanno in un locale: passeggiate, parchi, ambienti che si
+muovono. Il salto concettuale è uno: per un evento itinerante **il «venue»
+smette di essere una coordinata e diventa il notaio stesso**. La prova non è
+mai stata «ero alle coordinate X» — è «ho sentito il codice che esisteva solo
+vicino al seme, in quel minuto». All'aperto questo diventa letterale:
+
+- **L'ancora cammina con l'host** (modalità notaio, §2): la bolla BLE —
+  20-50 m all'aperto, meglio che indoor — si muove col gruppo. Presenza =
+  essere *col gruppo*, che per una passeggiata è la semantica giusta.
+- **Il geofence del brief cambia trigger, non muore**: per l'evento fisso
+  resta il cerchio GPS; per l'itinerante **la region iBeacon è il geofence
+  mobile** — iOS sveglia l'app all'ingresso in region anche da uccisa, e la
+  region sta dovunque stia il notaio. Il ritardatario che raggiunge il gruppo
+  a metà percorso viene svegliato *dal gruppo stesso*. La notifica one-tap
+  scatta uguale, con lo stesso dedup sulla transizione.
+- **L'uscita è simmetrica e gratuita**: se il gruppo se ne va e tu resti al
+  chiosco, è l'evento che esce da te — `didExitRegion`, sessione tagliata.
+- **Gruppo disperso → più notai, zero protocollo**: il seme è per-evento e la
+  derivazione deterministica, quindi **due telefoni con lo stesso seme
+  emettono lo stesso codice**. Co-host su due campi = due emettitori; il
+  server non se ne accorge. Hardening quando serve: sub-semi per-notaio via
+  HKDF (revocabili singolarmente) o a scadenza temporale — *scopare* il
+  segreto, non «criptarlo di più».
+- **Il GPS all'aperto torna forte — come contesto** (§6.6 del business case):
+  l'accuratezza migliora, la custodia no. Mock location funziona anche su un
+  prato, e un percorso pubblicato rende banale lo spoof da casa. Resta
+  contesto, mai prova: l'anti-frode del brief non cambia di un millimetro.
+- **I costi dichiarati**: batteria dell'host (powerbank), niente prese
+  (variante nRF52 a batteria, §5), sole sul QR di giorno, e il dwell
+  opportunistico iOS — identico a indoor.
+
+## 7. Cosa insegnano gli altri
+
+**ProxiMate** (FirstLayer, il precedente citato nello Swift del modulo): P2P
+puro — ogni utente advertisa un service UUID personale, scansiona gli amici,
+si connette in GATT e campiona l'RSSI, con i *restoration identifier* che
+fanno rilanciare l'app per gli eventi BLE in background. Due lezioni. La
+prima: il P2P fra sconosciuti in background su iOS è la battaglia più dura
+della piattaforma — è l'esperienza empirica dietro «la rete tra pari non si
+tesse da sola» (§3). La seconda, più sottile: **le pending connection con
+restoration funzionano** — iOS completa una connessione GATT in background
+verso un peripheral noto e rilancia l'app. Quindi il canale domanda-e-risposta
+*esiste*: un ESP32 connettibile + pending connect + challenge per-device
+chiuderebbe il titolo al portatore. Non è il default per ragioni di capacità
+(pochi slot GATT simultanei contro decine di attendee), batteria e
+affidabilità — ma è il gradino di hardening sopra il broadcast, quando il
+valore in gioco lo giustifica.
+
+**Bump (Amo)** — il «sai quando un amico è vicino, in background»: sotto è
+**posizione in background, non BLE** (l'app Android si chiama letteralmente
+`co.amo.android.location`), con matching server-side. La lezione: i consumer
+che vogliono il *sempre-in-background* rinunciano al BLE P2P e ripiegano sul
+GPS — che per loro basta, perché il problema di Bump è la scoperta, non la
+prova. Il nostro è la prova: la posizione è una dichiarazione, e il brief
+chiede esattamente di non fidarsene.
+
+**I sistemi di presenza accademici su BLE** sono convergenti sulla nostra
+identica architettura — il telefono del docente come unico beacon, identificatore
+di sessione rotante, scansione passiva degli studenti, validazione sul
+backend — e la letteratura d'attacco canonica è la *signal imitation* (il
+nostro inoltro del titolo al portatore), con biometria on-device come
+contromisura di fascia alta. Non è un'idea esotica: è lo stato della pratica,
+col vantaggio che noi il limite lo dichiariamo e lo misuriamo (ritardo di
+consegna) invece di fingerlo risolto.
+
+---
+
 ## In una frase
 
 Il notaio è chi custodisce il seme, non il silicio che lo ospita: il telefono
-che l'host ha già in mano è il fallback — l'ESP32 resta quello che è sempre
-stato sulla carta, un'ottimizzazione.
+che l'host ha già in mano è il fallback, la bolla che cammina col gruppo è il
+venue degli eventi itineranti — e l'ESP32 resta quello che è sempre stato
+sulla carta, un'ottimizzazione.
