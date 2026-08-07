@@ -62,6 +62,16 @@ class WemeetBeaconModule : Module() {
   private var backgroundIntent: PendingIntent? = null
   private var advertiseCallback: AdvertiseCallback? = null
 
+  /* La radiografia della scansione: a che gradino si ferma il segnale?
+     Annunci sentiti in totale → frame col company id Apple → frame col
+     prefisso iBeacon → e l'ultimo UUID visto. Zero a un gradino = il
+     problema sta lì. */
+  private var statResults = 0
+  private var statApple = 0
+  private var statIbeacon = 0
+  private var statLastUuid: String? = null
+  private var statError: String? = null
+
   override fun definition() = ModuleDefinition {
     Name("WemeetBeacon")
 
@@ -89,6 +99,11 @@ class WemeetBeaconModule : Module() {
       val scanner = adapter()?.bluetoothLeScanner
         ?: throw CodedException("Bluetooth non disponibile o spento")
       stopForegroundScan()
+      statResults = 0
+      statApple = 0
+      statIbeacon = 0
+      statLastUuid = null
+      statError = null
 
       val callback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -98,9 +113,31 @@ class WemeetBeaconModule : Module() {
         override fun onBatchScanResults(results: MutableList<ScanResult>) {
           emit(results)
         }
+
+        override fun onScanFailed(errorCode: Int) {
+          // Senza questo override una scansione morta è indistinguibile
+          // dal silenzio radio: il fallimento va raccontato.
+          statError = "scansione fallita (codice $errorCode)"
+          android.util.Log.e("WemeetBeacon", statError!!)
+        }
       }
       scanCallback = callback
-      scanner.startScan(listOf(filterFor(uuid)), foregroundSettings(), callback)
+      // In primo piano niente filtro hardware: il cancello è il parser
+      // condiviso lato app, e i contatori vedono tutto lo spettro.
+      scanner.startScan(null, foregroundSettings(), callback)
+      android.util.Log.d("WemeetBeacon", "scansione foreground avviata (uuid atteso $uuid)")
+    }
+
+    /** La radiografia, per il pannello di debug dell'app. */
+    AsyncFunction("scanStatsAsync") {
+      mapOf(
+        "supported" to true,
+        "results" to statResults,
+        "apple" to statApple,
+        "ibeacon" to statIbeacon,
+        "lastUuid" to statLastUuid,
+        "error" to statError,
+      )
     }
 
     AsyncFunction("stopRangingAsync") {
@@ -277,9 +314,15 @@ class WemeetBeaconModule : Module() {
 
   private fun emit(results: List<ScanResult>) {
     val now = System.currentTimeMillis()
+    statResults += results.size
     val beacons = results.mapNotNull { result ->
       val payload = result.scanRecord?.getManufacturerSpecificData(APPLE_COMPANY_ID)
         ?: return@mapNotNull null
+      statApple++
+      if (payload.size >= 18 && payload[0] == 0x02.toByte() && payload[1] == 0x15.toByte()) {
+        statIbeacon++
+        statLastUuid = payload.copyOfRange(2, 18).joinToString("") { "%02x".format(it) }
+      }
       // Rimettiamo il company id: i byte tornano identici a quelli in onda.
       val frame = ByteArray(payload.size + 2)
       frame[0] = 0x4C

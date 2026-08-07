@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { WemeetBeacon, type NativeSighting } from "../../modules/wemeet-beacon";
+import {
+  WemeetBeacon,
+  type NativeSighting,
+  type ScanStats,
+} from "../../modules/wemeet-beacon";
 import { BEACON_LOST_AFTER_MS, BEACON_UUID } from "../lib/config";
 import { collectCode } from "../wallet/wallet";
 import { normalizeSighting, type Sighting } from "./normalize";
@@ -25,6 +29,8 @@ export interface BeaconChannel {
   /** Codici distinti raccolti in questa sessione di ascolto. */
   collectedNow: number;
   error: string | null;
+  /** La radiografia della scansione (solo Android): dove si ferma il segnale. */
+  stats: ScanStats | null;
 }
 
 const INITIAL: BeaconChannel = {
@@ -35,6 +41,7 @@ const INITIAL: BeaconChannel = {
   lastCode: null,
   collectedNow: 0,
   error: null,
+  stats: null,
 };
 
 export function useBeaconChannel(
@@ -105,6 +112,13 @@ export function useBeaconChannel(
       if (Date.now() - lastSeenAt.current > BEACON_LOST_AFTER_MS) {
         setState((prev) => (prev.inRange ? { ...prev, inRange: false } : prev));
       }
+      // La radiografia si aggiorna insieme: dove si ferma il segnale?
+      WemeetBeacon?.scanStatsAsync?.()
+        .then((stats) => {
+          if (cancelled) return;
+          setState((prev) => ({ ...prev, stats: stats.supported ? stats : null }));
+        })
+        .catch(() => {});
     }, 5_000);
 
     return () => {

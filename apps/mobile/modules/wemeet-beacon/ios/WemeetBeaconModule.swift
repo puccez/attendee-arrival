@@ -148,6 +148,12 @@ public class WemeetBeaconModule: Module {
 
     AsyncFunction("syncArrivalStateAsync") { (_: Bool) in }
 
+    // La radiografia della scansione esiste solo su Android: qui i frame li
+    // interpreta CoreLocation e i byte grezzi non si vedono.
+    AsyncFunction("scanStatsAsync") { () -> [String: Any] in
+      ["supported": false]
+    }
+
     // Modalità notaio: mette in onda il frame dell'evento. Richiamarla con
     // major/minor nuovi È la rotazione del codice — il driver JS la invoca
     // a ogni finestra da 30 s. Le opzioni (titolo/corpo della notifica del

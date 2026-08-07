@@ -108,6 +108,21 @@ declare class WemeetBeaconModuleType extends NativeModule<WemeetBeaconEvents> {
     options: { title: string; body: string },
   ): Promise<void>;
   stopAdvertisingAsync(): Promise<void>;
+  /**
+   * La radiografia della scansione (solo Android): a che gradino si ferma
+   * il segnale — annunci totali → frame Apple → frame iBeacon → ultimo
+   * UUID sentito. Su iOS `supported` è false: lì i byte grezzi non esistono.
+   */
+  scanStatsAsync(): Promise<ScanStats>;
+}
+
+export interface ScanStats {
+  supported: boolean;
+  results?: number;
+  apple?: number;
+  ibeacon?: number;
+  lastUuid?: string | null;
+  error?: string | null;
 }
 
 export const WemeetBeacon =

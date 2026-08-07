@@ -582,6 +582,18 @@ function Backstage({
           {beacon.lastSighting?.rssi != null ? (
             <KV k="potenza" v={`${beacon.lastSighting.rssi} dBm`} />
           ) : null}
+          {beacon.stats ? (
+            <KV
+              k="radiografia"
+              v={`${beacon.stats.results ?? 0} annunci · ${beacon.stats.apple ?? 0} apple · ${beacon.stats.ibeacon ?? 0} ibeacon`}
+            />
+          ) : null}
+          {beacon.stats?.lastUuid ? (
+            <KV k="ultimo uuid sentito" v={`${beacon.stats.lastUuid.slice(0, 8)}…`} />
+          ) : null}
+          {beacon.stats?.error ? (
+            <KV k="errore scansione" v={beacon.stats.error} />
+          ) : null}
           {beacon.error ? <KV k="errore radio" v={beacon.error} /> : null}
           <KV k="codici raccolti" v={String(collected)} />
           <KV k="in attesa di consegna" v={String(pending)} />
