@@ -31,9 +31,18 @@ class BeaconScanReceiver : BroadcastReceiver() {
 
     val now = System.currentTimeMillis()
     var sawBeacon = false
+    // Il filtro hardware sgrossa e basta (prefisso iBeacon): il confronto
+    // dei 16 byte dell'UUID si fa qui — un beacon altrui non ci riguarda.
+    val expectedUuid = BeaconStore.expectedUuid(context)
 
     for (result in results) {
       val payload = result.scanRecord?.getManufacturerSpecificData(APPLE_COMPANY_ID) ?: continue
+      if (payload.size < 23) continue
+      if (expectedUuid != null &&
+        !expectedUuid.contentEquals(payload.copyOfRange(2, 18))
+      ) {
+        continue
+      }
       // getManufacturerSpecificData() toglie il company id: lo rimettiamo,
       // così i byte sono identici a quelli in onda e li interpreta lo
       // stesso parser condiviso dell'app (src/lib/ibeacon.ts).

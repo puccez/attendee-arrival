@@ -16,6 +16,7 @@ import org.json.JSONObject
 internal object BeaconStore {
   private const val PREFS = "wemeet-beacon"
   private const val KEY_QUEUE = "sightings"
+  private const val KEY_UUID = "expected-uuid"
   private const val KEY_LAST_NOTIFIED = "last-notified-at"
   private const val KEY_ANNOUNCED_PENDING = "announced-pending"
   private const val KEY_TITLE = "notification-title"
@@ -34,6 +35,28 @@ internal object BeaconStore {
       .putString(KEY_BODY, body)
       .putString(KEY_DEEP_LINK, deepLink)
       .apply()
+  }
+
+  /**
+   * L'UUID che il receiver deve riconoscere. Il filtro hardware è corto di
+   * proposito (vedi WemeetBeaconModule.filterFor): il confronto dei 16 byte
+   * si fa qui, in software, così un iBeacon altrui non sveglia nessuno.
+   */
+  fun rememberUuid(context: Context, uuid: java.util.UUID) {
+    val bytes = java.nio.ByteBuffer.allocate(16)
+      .putLong(uuid.mostSignificantBits)
+      .putLong(uuid.leastSignificantBits)
+      .array()
+    prefs(context).edit()
+      .putString(KEY_UUID, bytes.joinToString("") { "%02x".format(it) })
+      .apply()
+  }
+
+  fun expectedUuid(context: Context): ByteArray? {
+    val hex = prefs(context).getString(KEY_UUID, null) ?: return null
+    return ByteArray(hex.length / 2) { i ->
+      hex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+    }
   }
 
   fun notificationTitle(context: Context): String =

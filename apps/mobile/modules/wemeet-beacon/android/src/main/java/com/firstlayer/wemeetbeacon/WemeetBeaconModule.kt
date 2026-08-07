@@ -122,6 +122,7 @@ class WemeetBeaconModule : Module() {
         options.body,
         options.deepLink,
       )
+      BeaconStore.rememberUuid(context, UUID.fromString(uuid))
 
       stopBackgroundScan()
       val intent = Intent(context, BeaconScanReceiver::class.java)
@@ -239,22 +240,18 @@ class WemeetBeaconModule : Module() {
     ) "granted" else "denied"
 
   /**
-   * Filtro sui manufacturer data: solo i frame iBeacon con il NOSTRO UUID.
-   * Il pattern parte dopo il company id — 02 15 seguito dai 16 byte
-   * dell'UUID — e la maschera li rende tutti significativi.
+   * Filtro sui manufacturer data: solo frame iBeacon (prefisso 02 15 dopo
+   * il company id Apple). CORTO DI PROPOSITO: il filtro lungo col confronto
+   * dei 16 byte dell'UUID sta oltre i limiti del filtro hardware di molti
+   * chip economici, che in quel caso scartano TUTTO in silenzio — il primo
+   * telefono vero (Redmi, Android 10) non sentiva un iPhone a dieci
+   * centimetri. Il cancello vero è il parser condiviso lato app
+   * (src/lib/ibeacon.ts): rilegge i byte, verifica company id, tipo e
+   * UUID, ed è testato contro il firmware. Qui si sgrossa e basta.
    */
-  private fun filterFor(uuid: String): ScanFilter {
-    val parsed = UUID.fromString(uuid)
-    val uuidBytes = ByteBuffer.allocate(16)
-      .putLong(parsed.mostSignificantBits)
-      .putLong(parsed.leastSignificantBits)
-      .array()
-
-    val pattern = ByteArray(18)
-    pattern[0] = 0x02
-    pattern[1] = 0x15
-    System.arraycopy(uuidBytes, 0, pattern, 2, 16)
-    val mask = ByteArray(18) { 0xFF.toByte() }
+  private fun filterFor(@Suppress("UNUSED_PARAMETER") uuid: String): ScanFilter {
+    val pattern = byteArrayOf(0x02, 0x15)
+    val mask = byteArrayOf(0xFF.toByte(), 0xFF.toByte())
 
     return ScanFilter.Builder()
       .setManufacturerData(APPLE_COMPANY_ID, pattern, mask)
