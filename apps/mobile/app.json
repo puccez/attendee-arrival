@@ -27,6 +27,8 @@
     "android": {
       "package": "com.firstlayer.wemeetattendee",
       "permissions": [
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_SCAN",
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.ACCESS_COARSE_LOCATION",
