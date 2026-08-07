@@ -31,18 +31,22 @@ test("cambiare evento invalida il «già dentro» di quello vecchio", () => {
 });
 
 /*
- * Il trigger unificato: la notifica one-tap può innescarla sia il geofence
- * GPS sia l'ingresso nella region del beacon (modalità notaio, eventi
- * itineranti). I due inneschi condividono lo stesso stato di transizione,
- * quindi qualunque coppia di risvegli nella stessa bolla vale un annuncio.
+ * Il trigger unificato: la notifica one-tap può innescarla il geofence
+ * GPS, l'ingresso nella region del beacon (modalità notaio, eventi
+ * itineranti) o — su Android, ad app chiusa — il receiver nativo. Tutte le
+ * strade condividono lo stesso stato di transizione, quindi qualunque
+ * combinazione di risvegli nella stessa bolla vale UN annuncio.
  *
- * La simulazione replica la disciplina di src/tasks.ts: chi passa dal ramo
- * notify scrive «dentro» comunque sia andata; l'uscita dal confine attivo
- * scrive «fuori».
+ * La simulazione replica la disciplina di src/tasks.ts: chi annuncia
+ * scrive «dentro» comunque sia andata; l'uscita dal confine attivo scrive
+ * «fuori». La strada nativa vi partecipa attraverso lo specchio in
+ * BeaconStore: l'annuncio del receiver si piega nello stato al risveglio
+ * (`annuncio_nativo`), e l'annuncio JS silenzia il receiver
+ * (`syncArrivalStateAsync`) — per il contratto è un trigger come gli altri.
  */
 
 function simulate(
-  triggers: ("geofence" | "region" | "uscita")[],
+  triggers: ("geofence" | "region" | "nativa" | "uscita")[],
   eventId: string,
 ): number {
   let fenceState: string | null = null;
@@ -71,4 +75,15 @@ test("all'evento itinerante l'uscita dalla region riarma l'annuncio", () => {
   // Lasci il gruppo a metà passeggiata («l'evento è uscito da te») e lo
   // raggiungi di nuovo: quella è una transizione vera, si riannuncia.
   assert.equal(simulate(["region", "uscita", "region"], "evento-a"), 2);
+});
+
+test("la notifica nativa Android è L'annuncio, non un altro", () => {
+  // Il receiver annuncia ad app chiusa; al risveglio si piega nello stato:
+  // geofence e region rigiocati trovano «già dentro» e tacciono.
+  assert.equal(simulate(["nativa", "geofence", "region"], "evento-a"), 1);
+  // E al contrario: se ha annunciato il JS, lo specchio armato tiene muto
+  // il receiver. Una bolla, un annuncio, tre strade.
+  assert.equal(simulate(["geofence", "nativa"], "evento-a"), 1);
+  // L'uscita riarma tutte e tre le strade insieme.
+  assert.equal(simulate(["nativa", "uscita", "geofence"], "evento-a"), 2);
 });

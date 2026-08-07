@@ -81,6 +81,19 @@ declare class WemeetBeaconModuleType extends NativeModule<WemeetBeaconEvents> {
    */
   drainBackgroundSightingsAsync(): Promise<NativeSighting[]>;
   /**
+   * Android: true se la notifica d'arrivo nativa (receiver, app chiusa) è
+   * partita dall'ultima lettura — chi la consuma la piega nello stato di
+   * transizione, così i risvegli successivi tacciono. iOS: sempre false.
+   */
+  consumeNativeArrivalAsync(): Promise<boolean>;
+  /**
+   * Lo specchio nativo della transizione d'arrivo (Android): «dentro»
+   * silenzia la notifica del receiver — l'annuncio c'è già stato, da
+   * qualunque strada — «fuori» la riarma per il prossimo rientro vero.
+   * iOS: no-op.
+   */
+  syncArrivalStateAsync(inside: boolean): Promise<void>;
+  /**
    * Modalità notaio: mette in onda il frame iBeacon dell'evento, identico
    * a quello dell'ESP32. Richiamarla con major/minor nuovi È la rotazione
    * del codice (la guida il driver JS, src/notary). Android emette dentro

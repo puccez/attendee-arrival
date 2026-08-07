@@ -51,6 +51,14 @@ export async function drainRadioBacklog(eventId: string): Promise<number> {
   let collected = 0;
   let seen = 0;
   try {
+    // Se il receiver nativo ha già annunciato l'arrivo (Android, app
+    // chiusa), quell'annuncio conta: si piega nello stato di transizione
+    // e i risvegli rigiocati da geofence e region tacciono — un annuncio,
+    // qualunque sia la strada.
+    if (await WemeetBeacon.consumeNativeArrivalAsync()) {
+      await writeSetting(SETTING_FENCE_STATE, eventId);
+      await logDeviceEvent(eventId, "annuncio_nativo", "aveva già annunciato il sistema");
+    }
     const backlog = await WemeetBeacon.drainBackgroundSightingsAsync();
     for (const raw of backlog) {
       const sighting = normalizeSighting(raw, BEACON_UUID);
@@ -94,6 +102,9 @@ export async function handleArrival(options: {
       await logDeviceEvent(eventId, "notifica_taciuta", "risultavi già dentro");
     }
     await writeSetting(SETTING_FENCE_STATE, eventId);
+    // Lo specchio nativo (Android): finché risulti dentro, anche il
+    // receiver ad app chiusa tace.
+    await WemeetBeacon?.syncArrivalStateAsync(true).catch(() => {});
   }
 
   const deviceId = await getDeviceId();
@@ -122,8 +133,9 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
   } else if (eventType === Location.GeofencingEventType.Exit) {
     // All'uscita si campiona un'ultima volta: è l'altro estremo del dwell.
     // E si torna «fuori»: il prossimo ingresso è una transizione vera,
-    // quindi verrà riannunciato.
+    // quindi verrà riannunciato — anche dal receiver nativo, che si riarma.
     await writeSetting(SETTING_FENCE_STATE, "");
+    await WemeetBeacon?.syncArrivalStateAsync(false).catch(() => {});
     await handleArrival({
       gpsInside: false,
       notify: false,
@@ -180,6 +192,7 @@ WemeetBeacon?.addListener("onRegionExit", () => {
     // dentro il locale non deve riarmare la notifica.
     if (!(await readSetting(SETTING_FENCE_REGION))) {
       await writeSetting(SETTING_FENCE_STATE, "");
+      await WemeetBeacon?.syncArrivalStateAsync(false).catch(() => {});
     }
     // La chiusura vale quanto la raccolta: si prova a consegnarla subito.
     const deviceId = await getDeviceId();
@@ -221,7 +234,8 @@ export async function stopGeofence(): Promise<void> {
     await Location.stopGeofencingAsync(GEOFENCE_TASK).catch(() => {});
   }
   // Fine dell'evento: fuori dalla region e senza firma, così il prossimo
-  // evento registra da capo e riannuncia.
+  // evento registra da capo e riannuncia — receiver nativo compreso.
   await writeSetting(SETTING_FENCE_STATE, "");
   await writeSetting(SETTING_FENCE_REGION, "");
+  await WemeetBeacon?.syncArrivalStateAsync(false).catch(() => {});
 }

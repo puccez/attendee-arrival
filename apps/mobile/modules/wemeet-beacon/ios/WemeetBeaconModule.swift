@@ -140,6 +140,14 @@ public class WemeetBeaconModule: Module {
       []
     }
 
+    // Il receiver nativo esiste solo su Android: qui l'annuncio passa
+    // tutto dal JS, quindi non c'è niente da consumare né da specchiare.
+    AsyncFunction("consumeNativeArrivalAsync") { () -> Bool in
+      false
+    }
+
+    AsyncFunction("syncArrivalStateAsync") { (_: Bool) in }
+
     // Modalità notaio: mette in onda il frame dell'evento. Richiamarla con
     // major/minor nuovi È la rotazione del codice — il driver JS la invoca
     // a ogni finestra da 30 s. Le opzioni (titolo/corpo della notifica del

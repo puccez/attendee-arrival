@@ -143,6 +143,18 @@ class WemeetBeaconModule : Module() {
       BeaconStore.drain(context)
     }
 
+    // Il receiver ha annunciato mentre l'app era chiusa? Letto una volta,
+    // si piega nello stato di transizione JS (vedi src/tasks.ts).
+    AsyncFunction("consumeNativeArrivalAsync") {
+      BeaconStore.consumeAnnouncedBySystem(context)
+    }
+
+    // Lo specchio nativo della transizione: dentro = receiver muto,
+    // fuori = riarmato per il prossimo rientro.
+    AsyncFunction("syncArrivalStateAsync") { inside: Boolean ->
+      BeaconStore.syncArrivalState(context, inside, System.currentTimeMillis())
+    }
+
     /*
      * Modalità notaio: il telefono dell'host mette in onda lo stesso frame
      * dell'ESP32. Richiamare la funzione con major/minor nuovi È la

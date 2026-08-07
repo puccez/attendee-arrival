@@ -106,6 +106,10 @@ class BeaconScanReceiver : BroadcastReceiver() {
 
     try {
       NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+      // L'annuncio è partito da qui, ad app chiusa: al risveglio il JS lo
+      // piega nello stato di transizione, così geofence e region rigiocati
+      // non lo ripetono — un annuncio, qualunque sia la strada.
+      BeaconStore.markAnnouncedBySystem(context)
     } catch (_: SecurityException) {
       // POST_NOTIFICATIONS negato: la porta della copertura non si chiude,
       // si etichetta — la raccolta dei codici continua lo stesso.

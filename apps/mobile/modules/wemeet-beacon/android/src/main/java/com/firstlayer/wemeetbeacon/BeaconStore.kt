@@ -17,6 +17,7 @@ internal object BeaconStore {
   private const val PREFS = "wemeet-beacon"
   private const val KEY_QUEUE = "sightings"
   private const val KEY_LAST_NOTIFIED = "last-notified-at"
+  private const val KEY_ANNOUNCED_PENDING = "announced-pending"
   private const val KEY_TITLE = "notification-title"
   private const val KEY_BODY = "notification-body"
   private const val KEY_DEEP_LINK = "notification-deep-link"
@@ -49,12 +50,42 @@ internal object BeaconStore {
    * Una sola notifica per visita: se abbiamo già avvisato di recente,
    * l'avvistamento si accoda in silenzio. Il telefono in tasca che vibra
    * ogni cinque secondi non è una feature.
+   *
+   * Questo silenzio è lo specchio nativo dello stato di transizione JS
+   * (src/lib/arrival): quando annuncia il JS lo arma (`syncArrivalState`),
+   * quando si esce dal confine si disarma — così geofence, region e
+   * receiver producono UN annuncio, qualunque sia la strada. Il periodo di
+   * quiete resta come rete di sicurezza per l'app mai risvegliata.
    */
   fun shouldNotify(context: Context, now: Long, quietMs: Long): Boolean {
     val last = prefs(context).getLong(KEY_LAST_NOTIFIED, 0L)
     if (now - last < quietMs) return false
     prefs(context).edit().putLong(KEY_LAST_NOTIFIED, now).apply()
     return true
+  }
+
+  /** Il receiver HA annunciato: al prossimo risveglio il JS deve saperlo. */
+  fun markAnnouncedBySystem(context: Context) {
+    prefs(context).edit().putBoolean(KEY_ANNOUNCED_PENDING, true).apply()
+  }
+
+  /** Legge e azzera: l'annuncio nativo si piega nello stato JS una volta sola. */
+  fun consumeAnnouncedBySystem(context: Context): Boolean {
+    val store = prefs(context)
+    val pending = store.getBoolean(KEY_ANNOUNCED_PENDING, false)
+    if (pending) store.edit().putBoolean(KEY_ANNOUNCED_PENDING, false).apply()
+    return pending
+  }
+
+  /**
+   * Allinea lo specchio alla transizione JS: «dentro» silenzia il receiver
+   * (l'annuncio c'è già stato, da qualunque strada), «fuori» lo riarma —
+   * il prossimo avvistamento è un rientro vero e va riannunciato.
+   */
+  fun syncArrivalState(context: Context, inside: Boolean, now: Long) {
+    val edit = prefs(context).edit().putLong(KEY_LAST_NOTIFIED, if (inside) now else 0L)
+    if (!inside) edit.putBoolean(KEY_ANNOUNCED_PENDING, false)
+    edit.apply()
   }
 
   fun append(context: Context, manufacturerData: ByteArray, rssi: Int, at: Long) {
