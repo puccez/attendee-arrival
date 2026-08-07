@@ -36,23 +36,27 @@ class BeaconScanReceiver : BroadcastReceiver() {
     val expectedUuid = BeaconStore.expectedUuid(context)
 
     for (result in results) {
-      val payload = result.scanRecord?.getManufacturerSpecificData(APPLE_COMPANY_ID) ?: continue
-      if (payload.size < 23) continue
-      if (expectedUuid != null &&
-        !expectedUuid.contentEquals(payload.copyOfRange(2, 18))
-      ) {
-        continue
-      }
-      // getManufacturerSpecificData() toglie il company id: lo rimettiamo,
-      // così i byte sono identici a quelli in onda e li interpreta lo
-      // stesso parser condiviso dell'app (src/lib/ibeacon.ts).
-      val frame = ByteArray(payload.size + 2)
-      frame[0] = 0x4C
-      frame[1] = 0x00
-      System.arraycopy(payload, 0, frame, 2, payload.size)
+      // Byte grezzi, non getManufacturerSpecificData(): l'iPhone accoda al
+      // beacon un secondo blocco Apple (overflow area) e l'API tiene solo
+      // l'ultimo — il frame vero sparirebbe (vedi AppleFrames).
+      for (payload in AppleFrames.blocks(result.scanRecord?.bytes)) {
+        if (payload.size < 23) continue
+        if (payload[0] != 0x02.toByte() || payload[1] != 0x15.toByte()) continue
+        if (expectedUuid != null &&
+          !expectedUuid.contentEquals(payload.copyOfRange(2, 18))
+        ) {
+          continue
+        }
+        // Company id rimesso in testa: i byte sono identici a quelli in
+        // onda e li interpreta il parser condiviso (src/lib/ibeacon.ts).
+        val frame = ByteArray(payload.size + 2)
+        frame[0] = 0x4C
+        frame[1] = 0x00
+        System.arraycopy(payload, 0, frame, 2, payload.size)
 
-      BeaconStore.append(context, frame, result.rssi, now)
-      sawBeacon = true
+        BeaconStore.append(context, frame, result.rssi, now)
+        sawBeacon = true
+      }
     }
 
     if (sawBeacon && BeaconStore.shouldNotify(context, now, QUIET_PERIOD_MS)) {

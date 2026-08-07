@@ -315,25 +315,30 @@ class WemeetBeaconModule : Module() {
   private fun emit(results: List<ScanResult>) {
     val now = System.currentTimeMillis()
     statResults += results.size
-    val beacons = results.mapNotNull { result ->
-      val payload = result.scanRecord?.getManufacturerSpecificData(APPLE_COMPANY_ID)
-        ?: return@mapNotNull null
-      statApple++
-      if (payload.size >= 18 && payload[0] == 0x02.toByte() && payload[1] == 0x15.toByte()) {
-        statIbeacon++
-        statLastUuid = payload.copyOfRange(2, 18).joinToString("") { "%02x".format(it) }
-      }
-      // Rimettiamo il company id: i byte tornano identici a quelli in onda.
-      val frame = ByteArray(payload.size + 2)
-      frame[0] = 0x4C
-      frame[1] = 0x00
-      System.arraycopy(payload, 0, frame, 2, payload.size)
+    val beacons = results.flatMap { result ->
+      // I blocchi Apple si camminano nei byte grezzi: l'iPhone in onda ne
+      // mette DUE con lo stesso company id (iBeacon + overflow area), e
+      // l'API comoda di ScanRecord terrebbe solo l'ultimo — il beacon
+      // sparirebbe di nuovo (vedi AppleFrames).
+      AppleFrames.blocks(result.scanRecord?.bytes).map { payload ->
+        statApple++
+        if (payload.size >= 18 && payload[0] == 0x02.toByte() && payload[1] == 0x15.toByte()) {
+          statIbeacon++
+          statLastUuid = payload.copyOfRange(2, 18).joinToString("") { "%02x".format(it) }
+        }
+        // Company id rimesso in testa: i byte tornano identici a quelli in
+        // onda e li interpreta il parser condiviso (src/lib/ibeacon.ts).
+        val frame = ByteArray(payload.size + 2)
+        frame[0] = 0x4C
+        frame[1] = 0x00
+        System.arraycopy(payload, 0, frame, 2, payload.size)
 
-      mapOf(
-        "manufacturerData" to Base64.encodeToString(frame, Base64.NO_WRAP),
-        "rssi" to result.rssi,
-        "at" to now,
-      )
+        mapOf(
+          "manufacturerData" to Base64.encodeToString(frame, Base64.NO_WRAP),
+          "rssi" to result.rssi,
+          "at" to now,
+        )
+      }
     }
     if (beacons.isEmpty()) return
     sendEvent("onBeaconRanged", mapOf("beacons" to beacons))
