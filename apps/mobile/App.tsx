@@ -415,12 +415,30 @@ export default function App() {
  * il registro della loro schermata di lancio. Il velo, senza gradienti in
  * dotazione, è fatto di cerchi concentrici traslucidi.
  */
-function Hero({ name, pill = "In corso" }: { name: string; pill?: string }) {
+function Hero({
+  name,
+  pill = "In corso",
+  onBack,
+}: {
+  name: string;
+  pill?: string;
+  /** Il chevron di ritorno sopra la foto, come nel loro dettaglio evento. */
+  onBack?: () => void;
+}) {
   return (
     <View style={styles.hero}>
       <View style={[styles.glow, styles.glowBig]} />
       <View style={[styles.glow, styles.glowMid]} />
       <View style={[styles.glow, styles.glowSmall]} />
+      {onBack ? (
+        <Pressable
+          onPress={onBack}
+          style={styles.heroBack}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Text style={styles.heroBackText}>‹</Text>
+        </Pressable>
+      ) : null}
       <View style={styles.heroFoot}>
         <View style={styles.pillOnPhoto}>
           <Text style={styles.pillOnPhotoText}>{pill}</Text>
@@ -623,12 +641,12 @@ function NotaryScreen({
   const emissione = notary.active
     ? notary.emitting
       ? {
-          tone: T.ok,
+          pill: "In onda",
           titolo: "In onda",
           sotto: "I telefoni intorno sentono il codice dell'evento.",
         }
       : {
-          tone: T.warn,
+          pill: "Radio ferma",
           titolo: "Attivo, ma la radio tace",
           sotto:
             notary.bluetooth === "spento"
@@ -636,70 +654,98 @@ function NotaryScreen({
               : "Un momento: la radio si sta preparando.",
         }
     : {
-        tone: T.faint,
+        pill: "Modalità notaio",
         titolo: "Non stai emettendo",
-        sotto: "Attiva la modalità notaio per far esistere il canale radio.",
+        sotto: "Attiva l'emissione per far esistere il canale radio.",
       };
 
   return (
     <View style={styles.screen}>
       <StatusBar style="light" />
       <ScrollView contentContainerStyle={styles.content}>
-        <Hero name={eventName} pill="Modalità notaio" />
+        <Hero name={eventName} pill={emissione.pill} onBack={onBack} />
 
+        {/* La card che risale sopra la testata, come il loro dettaglio
+            evento: righe tessera + titolo + sottotitolo. */}
         <View style={[styles.card, styles.sheet]}>
-          <Text style={styles.cardSub}>Il Codice Rotante in onda adesso</Text>
           <Text style={styles.notaryCode}>
             {notary.active && notary.code ? notary.code : "——————"}
           </Text>
-          <Text style={styles.cardSub}>
-            Cambia ogni 30 secondi, insieme alla console: chi verifica con uno
-            scanner deve leggere lo stesso numero.
+          <Text style={[styles.cardSub, styles.notaryCodeSub]}>
+            Il Codice Rotante in onda adesso · cambia ogni 30 secondi, insieme
+            alla console
           </Text>
-        </View>
-
-        <View style={[styles.card, styles.statusRow]}>
-          <View style={[styles.dot, { backgroundColor: emissione.tone }]} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.statusTitle}>{emissione.titolo}</Text>
-            <Text style={styles.cardSub}>{emissione.sotto}</Text>
-          </View>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>
-            {Platform.OS === "ios"
-              ? "Su iPhone si emette a schermata aperta"
-              : "Puoi mettere il telefono in tasca"}
-          </Text>
-          <Text style={styles.cardSub}>
-            {Platform.OS === "ios"
-              ? "È un limite di iOS, non un guasto: l'emissione vive finché questa schermata è aperta. Tieni il telefono in carica — a non farlo spegnere ci pensiamo noi."
-              : "Su Android l'emissione continua a schermo spento, tutta la sera: la notifica fissa è lì per ricordarti che stai emettendo."}
-          </Text>
-          <Text style={styles.cardSub}>
-            Consuma poco: un annuncio radio a bassissima energia, meno dello
-            schermo acceso.
-          </Text>
+          <InfoRow
+            tile={<BroadcastGlyph muted={!notary.emitting} />}
+            strong={emissione.titolo}
+            sub={emissione.sotto}
+          />
+          <InfoRow
+            tile={<PhoneGlyph />}
+            strong={
+              Platform.OS === "ios"
+                ? "Emette a schermata aperta"
+                : "Puoi metterlo in tasca"
+            }
+            sub={
+              Platform.OS === "ios"
+                ? "È un limite di iPhone, non un guasto: tienilo in carica, a non farlo spegnere ci pensiamo noi. Consuma meno dello schermo acceso."
+                : "L'emissione continua a schermo spento, tutta la sera: la notifica fissa ti ricorda che stai emettendo. Consuma meno dello schermo acceso."
+            }
+          />
         </View>
 
         {notary.error ? <Text style={styles.note}>{notary.error}</Text> : null}
         {notary.busy ? <ActivityIndicator color={T.brand} /> : null}
-
-        <View style={{ marginHorizontal: 16, gap: 8 }}>
-          {notary.active ? (
-            <PillButton label="Ferma l'emissione" onPress={() => void notary.deactivate()} />
-          ) : (
-            <PillButton label="Inizia a emettere" onPress={() => void notary.activate()} />
-          )}
-          <PillButton label="Torna all'evento" tone="soft" onPress={onBack} />
-        </View>
 
         <Text style={styles.footer}>
           Il notaio è un ruolo, non un oggetto: stasera lo gioca questo
           telefono. Fermarlo cancella il seme.
         </Text>
       </ScrollView>
+
+      {/* La stessa barra a pastiglia del resto dell'app: etichetta a
+          sinistra, azione corallo a destra — il loro «Partecipa». */}
+      <View style={styles.actionbar}>
+        <Text style={styles.actionbarLabel}>
+          {notary.active ? (notary.emitting ? "In onda ✓" : "Radio ferma") : "Non stai emettendo"}
+        </Text>
+        <Pressable
+          style={styles.round}
+          onPress={() =>
+            void (notary.active ? notary.deactivate() : notary.activate())
+          }
+        >
+          <Text style={styles.roundText}>
+            {notary.active ? "Ferma" : "Inizia a emettere"}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+/** Il glifo dell'emissione: un punto che allarga cerchi — fatto di viste,
+ *  come il segnaposto, inchiostro su tessera. */
+function BroadcastGlyph({ muted = false }: { muted?: boolean }) {
+  const ink = muted ? T.faint : T.inkStrong;
+  return (
+    <View style={styles.broadcastBox}>
+      <View style={[styles.broadcastRing, styles.broadcastRingOuter, { borderColor: ink }]} />
+      <View style={[styles.broadcastRing, styles.broadcastRingInner, { borderColor: ink }]} />
+      <View style={[styles.pinDot, { backgroundColor: ink }]} />
+    </View>
+  );
+}
+
+/** Un telefono stilizzato: cornice arrotondata e tacca dell'altoparlante. */
+function PhoneGlyph() {
+  return (
+    <View style={styles.phoneBody}>
+      <View style={styles.phoneNotch} />
     </View>
   );
 }
@@ -853,6 +899,13 @@ const styles = StyleSheet.create({
   glowMid: { width: 300, height: 300, top: -170, right: -90 },
   glowSmall: { width: 190, height: 190, top: -110, right: -40 },
   heroFoot: { paddingBottom: 32 },
+  heroBack: { position: "absolute", top: 58, left: 16, zIndex: 1 },
+  heroBackText: {
+    color: "#fff",
+    fontSize: 34,
+    lineHeight: 36,
+    fontWeight: "600",
+  },
   pillOnPhoto: {
     alignSelf: "flex-start",
     backgroundColor: T.surface,
@@ -928,6 +981,29 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 8,
     fontVariant: ["tabular-nums"],
+  },
+  notaryCodeSub: { textAlign: "center" },
+
+  /* --- glifi della modalità notaio: viste, non icone --- */
+  broadcastBox: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
+  broadcastRing: { position: "absolute", borderWidth: 1.5, borderRadius: T.rFull },
+  broadcastRingOuter: { width: 24, height: 24, opacity: 0.35 },
+  broadcastRingInner: { width: 15, height: 15, opacity: 0.7 },
+  phoneBody: {
+    width: 14,
+    height: 22,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: T.inkStrong,
+    alignItems: "center",
+    justifyContent: "flex-end",
+    paddingBottom: 2,
+  },
+  phoneNotch: {
+    width: 5,
+    height: 2,
+    borderRadius: T.rFull,
+    backgroundColor: T.inkStrong,
   },
   note: { color: T.inkStrong, fontSize: 14, marginHorizontal: 32, marginBottom: 12 },
 
