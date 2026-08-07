@@ -74,6 +74,11 @@ export function fetchEvent(eventId: string): Promise<ApiEvent> {
   return request<ApiEvent>(`/events/${eventId}`);
 }
 
+/** Gli eventi recenti: la lista da toccare al posto dell'id incollato. */
+export function fetchEvents(): Promise<ApiEvent[]> {
+  return request<ApiEvent[]>("/events");
+}
+
 /**
  * Il codice corrente secondo il server. Serve solo alla diagnostica della
  * demo ("il beacon sta emettendo il codice giusto?"): l'app non ne ha

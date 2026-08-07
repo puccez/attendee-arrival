@@ -8,6 +8,8 @@ export const CHECK_INS_STORE = Symbol("CHECK_INS_STORE");
 export interface EventsStore {
   create(event: WeMeetEvent): Promise<void>;
   get(id: string): Promise<WeMeetEvent | null>;
+  /** Gli eventi più recenti, dal più nuovo: la lista che l'app fa toccare. */
+  list(limit: number): Promise<WeMeetEvent[]>;
 }
 
 /** Lo stato accumulato di un attendee: il borsellino consegnato finora. */

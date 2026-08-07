@@ -93,6 +93,16 @@ export class CheckInController {
     return this.events.create(parsed.data);
   }
 
+  /**
+   * Gli eventi recenti, per la scelta a tocco nell'app: al posto dell'id
+   * incollato a mano. Come per i dettagli, il seme NON esce da qui.
+   */
+  @Get("events")
+  async listEvents() {
+    const events = await this.events.list();
+    return events.map(({ seed: _seed, ...publicEvent }) => publicEvent);
+  }
+
   /** Dettagli pubblici dell'evento: il seme NON esce mai da qui. */
   @Get("events/:eventId")
   async getEvent(@Param("eventId") eventId: string) {

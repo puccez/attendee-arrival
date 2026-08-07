@@ -19,6 +19,12 @@ export class InMemoryEventsStore implements EventsStore {
   async get(id: string): Promise<WeMeetEvent | null> {
     return this.events.get(id) ?? null;
   }
+
+  async list(limit: number): Promise<WeMeetEvent[]> {
+    return [...this.events.values()]
+      .sort((a, b) => b.startsAt.getTime() - a.startsAt.getTime())
+      .slice(0, limit);
+  }
 }
 
 export class InMemoryCheckInsStore implements CheckInsStore {

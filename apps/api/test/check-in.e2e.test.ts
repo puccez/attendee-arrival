@@ -308,6 +308,16 @@ describe("POST /events/:id/deliveries — la cucitura via HTTP", () => {
     expect(res.body.code).toBe(deriveRotatingCode(event.seed, NOW));
   });
 
+  it("elenca gli eventi recenti per la scelta a tocco, senza semi", async () => {
+    const event = await createEvent();
+    const res = await request(http).get("/events");
+
+    expect(res.status).toBe(200);
+    const listed = (res.body as { id: string }[]).find((e) => e.id === event.id);
+    expect(listed).toBeDefined();
+    expect(JSON.stringify(res.body)).not.toContain(event.seed);
+  });
+
   it("la porta del seme consegna il seme dell'evento al notaio", async () => {
     // Chi gioca il ruolo del notaio (telefono dell'host, ESP32 provisionato)
     // lo scarica una volta e poi deriva in locale, anche senza rete.

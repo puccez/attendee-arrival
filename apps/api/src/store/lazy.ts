@@ -58,6 +58,9 @@ export class LazyEventsStore implements EventsStore {
   get(id: string): Promise<WeMeetEvent | null> {
     return resolveBacking().events.get(id);
   }
+  list(limit: number): Promise<WeMeetEvent[]> {
+    return resolveBacking().events.list(limit);
+  }
 }
 
 export class LazyCheckInsStore implements CheckInsStore {

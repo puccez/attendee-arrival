@@ -15,7 +15,13 @@ import {
 import { WemeetBeacon } from "./modules/wemeet-beacon";
 import { useBeaconChannel } from "./src/beacon/useBeaconChannel";
 import { useNotary, type NotaryHandle } from "./src/notary/useNotary";
-import { fetchCurrentCode, fetchEvent, type ApiCheckIn, type ApiEvent } from "./src/lib/api";
+import {
+  fetchCurrentCode,
+  fetchEvent,
+  fetchEvents,
+  type ApiCheckIn,
+  type ApiEvent,
+} from "./src/lib/api";
 import { BEACON_UUID, FLUSH_INTERVAL_MS } from "./src/lib/config";
 import { onArrivalTapped } from "./src/lib/notifications";
 import {
@@ -787,8 +793,17 @@ function EventPicker({
 }: {
   onPick: (eventId: string, name: string) => Promise<void>;
 }) {
+  const [events, setEvents] = useState<ApiEvent[] | null>(null);
   const [id, setId] = useState("");
   const [name, setName] = useState("");
+
+  // La lista degli eventi recenti, da toccare: l'id a mano resta come
+  // riserva per quando la rete non c'è o l'evento non è in lista.
+  useEffect(() => {
+    void fetchEvents()
+      .then(setEvents)
+      .catch(() => setEvents([]));
+  }, []);
 
   return (
     <View style={styles.screen}>
@@ -796,9 +811,39 @@ function EventPicker({
       <ScrollView contentContainerStyle={styles.content}>
         <Hero name="A quale evento vai?" />
         <View style={[styles.card, styles.sheet]}>
+          <Text style={styles.cardSub}>Prima dicci chi sei, poi tocca il tuo evento.</Text>
+          <TextInput
+            style={styles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="il tuo nome (facoltativo)"
+            placeholderTextColor={T.faint}
+          />
+        </View>
+
+        <View style={styles.card}>
+          {events === null ? (
+            <ActivityIndicator color={T.brand} />
+          ) : events.length === 0 ? (
+            <Text style={styles.cardSub}>
+              Nessun evento in lista (o niente rete): incolla l'id qui sotto.
+            </Text>
+          ) : (
+            events.map((event) => (
+              <Pressable key={event.id} onPress={() => void onPick(event.id, name)}>
+                <InfoRow
+                  tile={<Text style={styles.tileGlyph}>{dayOfMonth(event.startsAt)}</Text>}
+                  strong={event.name}
+                  sub={`${eventDay(event.startsAt) ?? ""} · ${eventHours(event.startsAt, event.endsAt)}`}
+                />
+              </Pressable>
+            ))
+          )}
+        </View>
+
+        <View style={styles.card}>
           <Text style={styles.cardSub}>
-            Incolla l'id dell'evento (te lo dà chi conduce). Il telefono non ha
-            bisogno d'altro: il resto arriva dal beacon.
+            Oppure incolla l'id dell'evento (te lo dà chi conduce).
           </Text>
           <TextInput
             style={styles.input}
@@ -808,13 +853,6 @@ function EventPicker({
             placeholderTextColor={T.faint}
             autoCapitalize="none"
             autoCorrect={false}
-          />
-          <TextInput
-            style={styles.input}
-            value={name}
-            onChangeText={setName}
-            placeholder="il tuo nome (facoltativo)"
-            placeholderTextColor={T.faint}
           />
           <PillButton
             label="Entra"

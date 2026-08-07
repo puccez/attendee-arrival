@@ -36,4 +36,8 @@ export class EventsService {
     if (!event) throw new NotFoundException(`Evento sconosciuto: ${id}`);
     return event;
   }
+
+  async list(limit = 30): Promise<WeMeetEvent[]> {
+    return this.store.list(limit);
+  }
 }

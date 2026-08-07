@@ -111,6 +111,23 @@ export class PgEventsStore implements EventsStore {
       geofence: r.geofence ?? undefined,
     };
   }
+
+  async list(limit: number): Promise<WeMeetEvent[]> {
+    await this.db.ensureSchema();
+    const { rows } = await this.db.pool.query(
+      `SELECT id, name, seed, starts_at, ends_at, geofence
+       FROM events ORDER BY starts_at DESC LIMIT $1`,
+      [limit],
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      seed: r.seed,
+      startsAt: new Date(r.starts_at),
+      endsAt: new Date(r.ends_at),
+      geofence: r.geofence ?? undefined,
+    }));
+  }
 }
 
 export class PgTelemetryStore implements TelemetryStore {
