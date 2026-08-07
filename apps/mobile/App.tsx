@@ -806,16 +806,38 @@ function EventPicker({
   onPick: (eventId: string, name: string) => Promise<void>;
 }) {
   const [events, setEvents] = useState<ApiEvent[] | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [id, setId] = useState("");
   const [name, setName] = useState("");
 
   // La lista degli eventi recenti, da toccare: l'id a mano resta come
-  // riserva per quando la rete non c'è o l'evento non è in lista.
+  // riserva per quando la rete non c'è o l'evento non è in lista. Un
+  // primo colpo a vuoto (WiFi che si riaggancia, DNS che inciampa) non
+  // deve congelare la schermata: si riprova da soli, e c'è «Ricarica».
   useEffect(() => {
-    void fetchEvents()
-      .then(setEvents)
-      .catch(() => setEvents([]));
-  }, []);
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const load = (retriesLeft: number) => {
+      fetchEvents()
+        .then((list) => {
+          if (!cancelled) setEvents(list);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          if (retriesLeft > 0) {
+            retryTimer = setTimeout(() => load(retriesLeft - 1), 3_000);
+          } else {
+            setEvents([]);
+          }
+        });
+    };
+    setEvents(null);
+    load(3);
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [attempt]);
 
   return (
     <View style={styles.screen}>
@@ -837,9 +859,17 @@ function EventPicker({
           {events === null ? (
             <ActivityIndicator color={T.brand} />
           ) : events.length === 0 ? (
-            <Text style={styles.cardSub}>
-              Nessun evento in lista (o niente rete): incolla l'id qui sotto.
-            </Text>
+            <>
+              <Text style={styles.cardSub}>
+                Nessun evento in lista (o niente rete): riprova, o incolla
+                l'id qui sotto.
+              </Text>
+              <PillButton
+                label="Ricarica"
+                tone="soft"
+                onPress={() => setAttempt((n) => n + 1)}
+              />
+            </>
           ) : (
             events.map((event) => (
               <Pressable key={event.id} onPress={() => void onPick(event.id, name)}>
