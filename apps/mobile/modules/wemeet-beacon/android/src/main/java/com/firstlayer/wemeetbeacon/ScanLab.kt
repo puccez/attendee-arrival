@@ -48,7 +48,7 @@ internal object ScanLab {
   )
 
   /** Il funnel di una configurazione: quanto sopravvive a ogni gradino. */
-  private class Collector : ScanCallback() {
+  private class Collector(private val huntUuid: ByteArray?) : ScanCallback() {
     var total = 0
     var apple = 0
     var ibeacon = 0
@@ -56,6 +56,15 @@ internal object ScanLab {
     val devices = HashSet<String>()
     val types = HashMap<String, Int>()
     val beacons = HashMap<String, Int>()
+
+    /* La caccia ai byte grezzi: se lo stack storpiasse il frame (byte
+       spostati, tipo riscritto), l'UUID resterebbe comunque da qualche
+       parte nel buffer. Qui si cerca la sua firma OVUNQUE, ignorando la
+       struttura — e si tiene un campione grezzo per ogni tipo Apple, per
+       decifrare a occhio cosa sono davvero. */
+    var uuidHits = 0
+    val uuidSamples = ArrayList<String>(3)
+    val typeSamples = HashMap<String, String>()
 
     override fun onScanResult(callbackType: Int, result: ScanResult) = tally(listOf(result))
 
@@ -69,12 +78,25 @@ internal object ScanLab {
       for (result in results) {
         total++
         devices.add(result.device?.address ?: "?")
+        val raw = result.scanRecord?.bytes
+        if (raw != null && huntUuid != null && indexOf(raw, huntUuid) >= 0) {
+          uuidHits++
+          if (uuidSamples.size < 3) {
+            uuidSamples.add(
+              "${result.device?.address} rssi=${result.rssi} " +
+                raw.joinToString("") { "%02x".format(it) }.replace(Regex("(00)+$"), "")
+            )
+          }
+        }
         val payload = result.scanRecord?.getManufacturerSpecificData(APPLE_COMPANY_ID)
           ?: continue
         apple++
         if (payload.isEmpty()) continue
         val type = "%02x".format(payload[0])
         types[type] = (types[type] ?: 0) + 1
+        if (!typeSamples.containsKey(type)) {
+          typeSamples[type] = payload.joinToString("") { "%02x".format(it) }
+        }
         if (payload.size >= 23 && payload[0] == 0x02.toByte() && payload[1] == 0x15.toByte()) {
           ibeacon++
           val uuid = payload.copyOfRange(2, 18).joinToString("") { "%02x".format(it) }
@@ -86,6 +108,17 @@ internal object ScanLab {
       }
     }
 
+    private fun indexOf(haystack: ByteArray, needle: ByteArray): Int {
+      if (needle.isEmpty() || haystack.size < needle.size) return -1
+      outer@ for (i in 0..haystack.size - needle.size) {
+        for (j in needle.indices) {
+          if (haystack[i + j] != needle[j]) continue@outer
+        }
+        return i
+      }
+      return -1
+    }
+
     fun describe(name: String): String {
       val tipi = types.entries
         .sortedByDescending { it.value }
@@ -93,6 +126,7 @@ internal object ScanLab {
       val visti = beacons.entries.joinToString(" | ") { "${it.key} ×${it.value}" }
       return "config=$name totale=$total dispositivi=${devices.size} apple=$apple " +
         "tipi={$tipi} ibeacon=$ibeacon" +
+        (if (huntUuid != null) " caccia-uuid=$uuidHits" else "") +
         (if (visti.isNotEmpty()) " visti=[$visti]" else "") +
         (failure?.let { " ERRORE_SCANSIONE=$it" } ?: "")
     }
@@ -115,10 +149,13 @@ internal object ScanLab {
       return
     }
     val stages = ArrayDeque(buildStages(context))
+    // La firma da braccare nei byte grezzi: i primi sei byte dell'UUID
+    // bastano a riconoscerlo anche se lo stack ne storpiasse la coda.
+    val hunt = BeaconStore.expectedUuid(context)?.copyOfRange(0, 6)
     Log.i(TAG, "giro di prova radio: ${stages.size} configurazioni × ${STAGE_MS / 1000}s")
     val thread = HandlerThread("wemeet-scan-lab").apply { start() }
     val handler = Handler(thread.looper)
-    handler.post { step(scanner, handler, thread, stages) }
+    handler.post { step(scanner, handler, thread, stages, hunt) }
   }
 
   private fun step(
@@ -126,6 +163,7 @@ internal object ScanLab {
     handler: Handler,
     thread: HandlerThread,
     stages: ArrayDeque<Stage>,
+    hunt: ByteArray?,
   ) {
     val stage = stages.removeFirstOrNull()
     if (stage == null) {
@@ -134,13 +172,13 @@ internal object ScanLab {
       thread.quitSafely()
       return
     }
-    val collector = Collector()
+    val collector = Collector(hunt)
     try {
       scanner.startScan(stage.filters, stage.settings, collector)
       Log.i(TAG, "in prova: ${stage.name}")
     } catch (e: Exception) {
       Log.e(TAG, "config=${stage.name} avvio fallito: $e")
-      handler.post { step(scanner, handler, thread, stages) }
+      handler.post { step(scanner, handler, thread, stages, hunt) }
       return
     }
     handler.postDelayed({
@@ -156,7 +194,13 @@ internal object ScanLab {
         } catch (_: Exception) {
         }
         Log.i(TAG, collector.describe(stage.name))
-        step(scanner, handler, thread, stages)
+        for (preda in collector.uuidSamples) {
+          Log.i(TAG, "  preda: $preda")
+        }
+        for ((tipo, esempio) in collector.typeSamples.toSortedMap()) {
+          Log.i(TAG, "  tipo $tipo esempio=$esempio")
+        }
+        step(scanner, handler, thread, stages, hunt)
       }, 700)
     }, STAGE_MS)
   }
