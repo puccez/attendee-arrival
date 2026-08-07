@@ -27,3 +27,11 @@ export const BEACON_LOST_AFTER_MS = 45_000;
 
 /** Ogni quanto tentare di svuotare il borsellino quando l'app è aperta. */
 export const FLUSH_INTERVAL_MS = 20_000;
+
+/** Ogni quanto riprovare a caricare l'evento finché la rete non torna. */
+export const EVENT_RETRY_MS = 15_000;
+
+/** Il banner dell'evento irraggiungibile: una costante, così chi lo mette
+ * e chi lo toglie parlano dello STESSO messaggio (il note è condiviso). */
+export const EVENT_UNREACHABLE_NOTE =
+  "Evento non raggiungibile: l'app raccoglie lo stesso, offline.";

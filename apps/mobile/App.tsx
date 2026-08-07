@@ -22,7 +22,12 @@ import {
   type ApiCheckIn,
   type ApiEvent,
 } from "./src/lib/api";
-import { BEACON_UUID, FLUSH_INTERVAL_MS } from "./src/lib/config";
+import {
+  BEACON_UUID,
+  EVENT_RETRY_MS,
+  EVENT_UNREACHABLE_NOTE,
+  FLUSH_INTERVAL_MS,
+} from "./src/lib/config";
 import { onArrivalTapped } from "./src/lib/notifications";
 import {
   currentPermissions,
@@ -125,19 +130,47 @@ export default function App() {
 
   useEffect(() => {
     if (!eventId) return;
+    let alive = true;
+    let retry: ReturnType<typeof setInterval> | null = null;
+
+    // Il caricamento non si arrende: se l'evento non risponde, si ritenta
+    // con calma finché la rete torna — e a quel punto il banner «non
+    // raggiungibile» si toglie da solo (solo lui: il note è condiviso con
+    // i messaggi del borsellino, che non vanno pestati).
+    const load = async (): Promise<boolean> => {
+      try {
+        const loaded = await fetchEvent(eventId);
+        if (!alive) return true;
+        setEvent(loaded);
+        setNote((current) => (current === EVENT_UNREACHABLE_NOTE ? null : current));
+        await writeSetting(SETTING_EVENT_NAME, loaded.name);
+        if (loaded.geofence) await startGeofence(loaded.geofence).catch(() => {});
+        return true;
+      } catch {
+        if (alive) setNote(EVENT_UNREACHABLE_NOTE);
+        return false;
+      }
+    };
+
     void (async () => {
       await refreshWallet();
       // Tutto ciò che il canale radio ha accumulato mentre l'app dormiva.
       if (await drainRadioBacklog(eventId)) await refreshWallet();
-      try {
-        const loaded = await fetchEvent(eventId);
-        setEvent(loaded);
-        await writeSetting(SETTING_EVENT_NAME, loaded.name);
-        if (loaded.geofence) await startGeofence(loaded.geofence).catch(() => {});
-      } catch {
-        setNote("Evento non raggiungibile: l'app raccoglie lo stesso, offline.");
-      }
+      if (await load()) return;
+      retry = setInterval(() => {
+        void load().then((ok) => {
+          if (ok && retry) {
+            clearInterval(retry);
+            retry = null;
+          }
+        });
+      }, EVENT_RETRY_MS);
     })();
+
+    return () => {
+      alive = false;
+      if (retry) clearInterval(retry);
+    };
   }, [eventId, refreshWallet]);
 
   /* La consegna periodica: il borsellino sale da solo, senza gesti. */
