@@ -29,6 +29,17 @@
       android:name="com.firstlayer.wemeetbeacon.NotaryService"
       android:exported="false"
       android:foregroundServiceType="connectedDevice" />
+
+    <!-- Il banco di prova della radio (ScanLab): esportato ma dietro il
+         permesso DUMP, che ha solo la shell adb — non le app installate. -->
+    <receiver
+      android:name="com.firstlayer.wemeetbeacon.ScanLabReceiver"
+      android:exported="true"
+      android:permission="android.permission.DUMP">
+      <intent-filter>
+        <action android:name="com.firstlayer.wemeetbeacon.SCAN_LAB" />
+      </intent-filter>
+    </receiver>
   </application>
 
 </manifest>
