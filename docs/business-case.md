@@ -62,9 +62,12 @@ Da qui i tre movimenti della tesi:
 - **La permanenza si conferma.** Un check-in istantaneo non dice se sei rimasto. La permanenza si misura, non si presume.
 
 E un principio che governa tutto il resto: **ogni check-in porta l'etichetta di
-chi lo ha confermato**. Il sistema non produce un verdetto binario «presente/assente»
-né un punteggio opaco: produce un fatto con la sua provenienza attaccata, e chi
-consuma il dato decide quanto vale.
+chi lo ha confermato**. Il sistema non si riduce a un verdetto binario
+«presente/assente» né a un punteggio opaco: produce un fatto con la sua
+provenienza attaccata, e chi consuma il dato decide quanto vale. (Un campo
+`accredited` esiste, per comodità di chi legge — ma è una *conseguenza*
+dell'etichetta: dice «almeno un testimone c'è», non sostituisce né il chi né
+il quanto.)
 
 ---
 
@@ -112,8 +115,10 @@ tre proprietà che ci servono tutte:
 
 Il server accetta la finestra corrente **più le due adiacenti**, per assorbire lo
 skew d'orologio fra beacon e telefono. Conseguenza diretta e dichiarata: **un
-codice trapelato resta spendibile fra i 30 e i 60 secondi dalla sua nascita**, a
-seconda di quando nella finestra è stato catturato. Non di più. Torna in §6.3.
+codice trapelato resta verificabile solo per la finestra in cui è nato** —
+dichiarare un orario diverso rompe la corrispondenza. Per quanto tempo resti
+*consegnabile* è un'altra domanda, e la risposta onesta passa dalla finestra di
+consegna offline: il conto è in §6.3.
 
 ### 3.3 Un codice, due canali
 
@@ -171,8 +176,21 @@ riesce a spiegare perché. Qui ogni check-in porta due etichette **ortogonali**.
 Macchina e umano non sono ordinate perché provano cose diverse. È il punto in cui
 il modello smette di essere un'euristica e diventa una struttura.
 
-**Qualità — quanto è solido** (continua): quanti codici validi distinti, su che
-arco di tempo (il **dwell**), e se c'è stato il tap sulla notifica.
+**Qualità — quanto è solido** (continua): quanti codici validi distinti, quanta
+**copertura** di permanenza, il buco più lungo fra due codici, quanto era
+vecchia la prova quando è arrivata al server, e se c'è stato il tap sulla
+notifica.
+
+La copertura merita una riga in più, perché **non è «ultimo codice meno
+primo»**. Si guarda un intervallo alla volta, fra due codici validi
+consecutivi, e lo si accredita per la sua durata — ma mai oltre un tetto (10
+minuti di default). Se fra due codici il client ha dichiarato un'uscita dalla
+region del beacon, quell'intervallo vale zero. Le conseguenze sono volute: chi
+sparisce un'ora si vede accreditare al massimo il tetto, che lo dichiari o no;
+e le sessioni dichiarate possono solo *tagliare* tempo, mai aggiungerne — per
+questo è sicuro accettarle da un client non fidato. Il numero che ne esce è un
+limite inferiore per costruzione, e si legge insieme al buco più lungo, che
+dice quanto è ruvido il campionamento.
 
 Come si legge, in pratica:
 
@@ -258,24 +276,41 @@ portare il peso della prova, servirebbero biometria e frizione a ogni conferma.
 
 **L'attacco.** Screenshotti il QR e lo giri su WhatsApp a chi è rimasto a casa.
 
-**Cosa succede.** Il codice vale la sua finestra (30 s) più la tolleranza di skew.
-La sandbox mostra entrambe le fasi, con un contatore:
+**Cosa succede.** Dipende da come chi lo riceve consegna, e il conto onesto va
+fatto in due tempi:
 
-- **inoltrato entro il minuto → passa.** E lo diciamo: è la finestra di frode
-  residua del sistema, ~30-60 secondi.
-- **inoltrato dopo → respinto.** Il codice era vero quando l'hai catturato; adesso
-  non prova più niente.
+- **l'inoltro ingenuo** — chi riceve consegna il codice come appena raccolto —
+  scade con la finestra: 30-60 secondi e viene respinto. È la fase che la
+  sandbox mostra col contatore.
+- **l'inoltro informato** — chi riceve dichiara l'ora di *nascita* del codice —
+  passa finché la consegna resta dentro la finestra di ritardo (6 ore di
+  default). È la stessa proprietà che fa funzionare l'offline (§8.2): il server
+  non può distinguere una prova che ha aspettato la rete da una che ha
+  viaggiato su WhatsApp. **La finestra di frode reale del canale inoltrato non
+  è il minuto: è la finestra di consegna** — e la sandbox lo dichiara con
+  queste stesse parole.
 
-**Perché regge comunque.** Perché la domanda giusta non è «si può inoltrare un
-codice?» ma «**quanto costa farlo per una serata intera?**». Per tenere in piedi
-un amico remoto servono un codice nuovo ogni 30 secondi, per due ore: 240 inoltri,
-da parte di un complice che è **fisicamente al venue** e non fa altro. A quel
-punto il complice poteva semplicemente portarsi l'amico. È l'obiettivo dichiarato:
-non l'impossibilità, ma **un costo sproporzionato rispetto all'incentivo** — che
-per un evento social gratuito è vicino allo zero.
+Offline generoso e inoltro che muore subito sono in tensione per costruzione:
+si sceglie un punto sulla bilancia e lo si dichiara. La finestra di ritardo è
+un parametro; e siccome l'istante d'arrivo di ogni codice lo timbra il server —
+mai il client — ogni check-in espone **quanto era vecchia la prova quando è
+arrivata** (`deliveryLagMinutes`): chi è al venue consegna in diretta, chi vive
+di inoltri accumula prove che arrivano già vecchie. Questa frode non si
+previene: si misura, e si lascia in vista.
 
-Il dwell (§6.4) è la difesa strutturale contro questo attacco: un check-in
-sostenuto da un solo codice inoltrato si distingue da solo dagli altri.
+**Perché regge comunque.** Perché la domanda si sdoppia. *Comprare la presenza*
+costa un solo codice inoltrato — e produce la riga più debole del tabellone:
+1 codice, 0 minuti di copertura, prova già vecchia all'arrivo. *Comprare la
+serata* richiede un flusso di codici per ore, e nessuno li gira a mano: basta
+una videochiamata puntata sul QR, che serve anche più amici remoti insieme. La
+difesa non è l'aritmetica degli inoltri: è che serve comunque **un complice
+fisicamente al venue per tutta la sera**, che la frode lascia una firma
+leggibile nel dato (ritardi di consegna, copertura ricostruita a posteriori), e
+che per un aperitivo gratuito il complice costa più del premio. Non
+l'impossibilità: un costo sproporzionato all'incentivo, più una traccia.
+
+Il dwell (§6.4) resta la difesa strutturale: un check-in sostenuto da un solo
+codice inoltrato si distingue da solo dagli altri.
 
 ### 6.4 Check-in e fuga
 
@@ -295,8 +330,9 @@ riempire il buco.
 
 Consegnare codici «raccolti» ieri non funziona: oltre la **finestra di consegna in
 ritardo** (6 ore di default, parametro della verifica) i codici vengono scartati. La finestra
-esiste perché l'offline è normale (§8.2), e il margine di replay che introduce è
-contenuto e **dichiarato**, non nascosto.
+esiste perché l'offline è normale (§8.2); il margine di replay che introduce è
+esattamente quello messo a nudo in §6.3 — finito, misurato dal ritardo di
+consegna, **dichiarato** invece che nascosto.
 
 ### 6.6 «Quali segnali distinguono una posizione genuina da una spoofata?»
 
@@ -440,12 +476,19 @@ nessuno, perché non sa chi c'è. Precedente: le Exposure Notifications di
 Apple/Google usano lo stesso schema di token rotanti, su scala planetaria.
 
 **Il dwell è opportunistico, non continuo.** iOS concede circa 10 secondi di
-esecuzione al risveglio da iBeacon: ingresso e uscita dalla region sono garantiti,
-i campioni intermedi arrivano quando l'utente apre il telefono (frequente a un
-aperitivo) o su silent push. Android, con lo scanning via `PendingIntent`, è più
-generoso. Quindi: **la permanenza è un limite inferiore osservato, non una
-misurazione continua**, e va letta così. Chi vuole permanenza densa con la
-certezza del secondo deve inquadrare il QR ogni tanto o accettare l'incertezza.
+esecuzione al risveglio da iBeacon: ingresso e uscita dalla region sono il
+segnale più affidabile che il sistema conceda — non una garanzia: arrivano con
+ritardi di decine di secondi e vanno trattati come eventi *probabili*, da
+verificare sul campo. I campioni intermedi arrivano quando l'utente apre il
+telefono (frequente a un aperitivo) o su silent push — che richiede rete e può
+essere ritardato o soppresso dal sistema: un aiuto, non un meccanismo su cui
+contare. Android, con lo scanning via `PendingIntent`, è più generoso. Quindi:
+**la permanenza è un limite inferiore osservato, non una misurazione
+continua**, e va letta così. Chi vuole permanenza densa con la certezza del
+secondo deve inquadrare il QR ogni tanto o accettare l'incertezza. I numeri
+veri — tassi di risveglio, buchi tipici per piattaforma — non si deducono
+dall'esistenza delle API: si misurano con distribuzioni sul campo, e il
+rollout (§11) è disegnato per raccoglierli dalla fase 0.
 
 **La finestra di frode residua è di 30-60 secondi.** Un codice vale la sua finestra
 più la tolleranza di skew. Uno screenshot inoltrato dentro il minuto funziona.
@@ -482,7 +525,7 @@ La demo è una demo. Cosa manca per la produzione, e dove sta:
 
 | Oggi nella demo | In produzione |
 |---|---|
-| **Nessuna autenticazione**: l'identità del device è un UUID in `localStorage` | Account WeRoad autenticato + binding del device; la consegna arriva già identificata |
+| **Nessuna autenticazione**: l'identità del device è un UUID in `localStorage`, e la porta della testimonianza è aperta come le altre | Account WeRoad autenticato + binding del device; la consegna arriva già identificata, e la testimonianza richiede il ruolo host (con audit log) |
 | **Nessun rate limiting** sull'endpoint di consegna. Lo spazio dei codici è 10⁶ e ogni codice vive ≤ 60 s, quindi il brute force è già poco pratico — ma «poco pratico» non è «impedito» | Rate limit per device e per IP, lockout dopo N codici invalidi consecutivi. È una riga di middleware, ma va scritta |
 | **La finestra oraria dell'evento non è applicata** in verifica: la separazione back-to-back la garantisce il seme per-evento, che è il meccanismo primario | Secondo filtro `startsAt ≤ collectedAt ≤ endsAt` come difesa in profondità (il dato è già nel modello) |
 | **La console interroga l'API** per il codice corrente | Il notaio riceve il seme una volta e deriva in locale — come già fa l'ESP32 — così l'emissione sopravvive alla rete dell'host |
@@ -503,10 +546,14 @@ Rotante e valutazione delle consegne. **13 test** che sono la specifica eseguibi
 del modello di fiducia (codice valido, replay, skew, back-to-back, offline dentro e
 fuori finestra, dwell, tocca-e-fuggi, GPS-solo, testimonianza umana, tap).
 
-**`apps/api`** — **modulo NestJS** con la cucitura di verifica: **un solo endpoint
-di scrittura**. `POST /events/:id/deliveries` riceve `{deviceId, codes[+quando],
-gps?, hostAttested?, confirmationTap?}` e restituisce il check-in etichettato.
-Tutta l'intelligenza di fiducia vive dietro quella porta. **7 test e2e** black-box
+**`apps/api`** — **modulo NestJS** con la cucitura di verifica: **due porte di
+scrittura, separate per costruzione**. `POST /events/:id/deliveries` riceve ciò
+che l'attendee afferma di aver raccolto — `{deviceId, codes[+quando], gps?,
+confirmationTap?}` — e restituisce il check-in etichettato;
+`POST /events/:id/attestations` riceve ciò che l'host afferma di aver visto.
+Non entrano dalla stessa porta perché nessun borsellino deve potersi
+accreditare da solo la parola di qualcun altro. Tutta l'intelligenza di fiducia
+vive dietro quelle porte. **7 test e2e** black-box
 sull'HTTP. Persistenza su Postgres (Supabase). Il modulo è **sollevabile e
 innestabile nel backend WeRoad così com'è**.
 
@@ -533,7 +580,11 @@ seriale: non serve riflashare fra un evento e l'altro.
 è valida **annuncia comunque l'UUID** — così il risveglio dell'app in prossimità
 continua a funzionare — ma con `major=0 minor=0`, che significa «orologio non
 sincronizzato». Fallisce a voce alta invece di emettere in silenzio codici che
-nessuno accrediterà.
+nessuno accrediterà. (La sentinella ha una collisione dichiarata: la troncatura
+può produrre legittimamente «000000», una finestra su un milione. Sul canale
+radio quella finestra è indistinguibile dall'orologio rotto e si sacrifica — 30
+secondi di copertura in meno, assorbiti dal tetto degli intervalli; sul canale
+ottico l'ambiguità non esiste.)
 
 **Sul canale radio nella demo web.** Quello che gira nel browser è il **canale
 ottico**: stesso codice, stessa verifica, trasporto diverso. Nessun browser può
@@ -627,7 +678,7 @@ ruotano — `major = codice / 10000`, `minor = codice % 10000`, quindi
 client dalla registrazione dell'attendee, ed è ciò che determina il seme contro
 cui il server verifica.
 
-**Consegna** (client → server), l'unica porta di scrittura:
+**Consegna** (attendee → server), la porta di ciò che l'attendee afferma:
 
 ```http
 POST /events/:eventId/deliveries
@@ -636,14 +687,25 @@ POST /events/:eventId/deliveries
   "attendeeName": "Anna",
   "codes": [ { "value": "438219", "collectedAt": "2026-08-07T21:14:03Z" } ],
   "gps": { "insideGeofence": true },     // contesto, mai prova
-  "hostAttested": false,                 // testimonianza umana
   "confirmationTap": true                // tap sulla notifica
 }
 → 201 {
   "accredited": true,
   "provenance": "machine",               // machine | human | machine+human | none
-  "quality": { "validCodes": 12, "coverageMinutes": 94, "tappedNotification": true }
+  "quality": { "validCodes": 12, "coverageMinutes": 94, "longestGapMinutes": 9,
+               "deliveryLagMinutes": 0, "tappedNotification": true }
 }
+```
+
+**Testimonianza** (host → server), una porta separata per costruzione — la
+consegna è ciò che l'attendee afferma di aver raccolto, la testimonianza è ciò
+che l'host afferma di aver visto, e nessun borsellino deve potersi accreditare
+da solo la parola di qualcun altro (in produzione: autenticata col ruolo
+dell'host, §9.2):
+
+```http
+POST /events/:eventId/attestations
+{ "deviceId": "…", "attendeeName": "Anna" }
 ```
 
 **Parametri dichiarati.** Finestra del codice: 30 s. Tolleranza di skew: ±1
