@@ -84,8 +84,10 @@ quel seme.
 Chi gioca il ruolo del notaio:
 
 - **Default: il telefono (o il laptop) dell'host.** La console dell'evento è già
-  aperta per altri motivi: mostra il codice come QR. Ora di rete sempre corretta,
-  connettività, zero hardware da gestire, zero flotta da mantenere in decine di città.
+  aperta per altri motivi: mostra il codice come QR. Ora di rete dei telefoni
+  (e se è storta, i codici non combaciano: il guasto è visibile, non
+  silenzioso), connettività, zero hardware da gestire, zero flotta da mantenere
+  in decine di città.
 - **Ottimizzazione: un dispositivo fisso** (un ESP32 da pochi euro) nei venue
   ricorrenti, dove vale la pena avere il canale radio sempre acceso.
 
@@ -188,9 +190,12 @@ minuti di default). Se fra due codici il client ha dichiarato un'uscita dalla
 region del beacon, quell'intervallo vale zero. Le conseguenze sono volute: chi
 sparisce un'ora si vede accreditare al massimo il tetto, che lo dichiari o no;
 e le sessioni dichiarate possono solo *tagliare* tempo, mai aggiungerne — per
-questo è sicuro accettarle da un client non fidato. Il numero che ne esce è un
-limite inferiore per costruzione, e si legge insieme al buco più lungo, che
-dice quanto è ruvido il campionamento.
+questo è sicuro accettarle da un client non fidato. Il numero che ne esce
+sottostima l'arco osservato per costruzione — con un'onestà in più da dire:
+dentro un buco più corto del tetto si può essere usciti e rientrati, quindi il
+tetto non è una garanzia fisica ma il limite massimo dell'errore per
+intervallo. Si legge insieme al buco più lungo, che dice quanto è ruvido il
+campionamento.
 
 Come si legge, in pratica:
 
@@ -294,9 +299,12 @@ Offline generoso e inoltro che muore subito sono in tensione per costruzione:
 si sceglie un punto sulla bilancia e lo si dichiara. La finestra di ritardo è
 un parametro; e siccome l'istante d'arrivo di ogni codice lo timbra il server —
 mai il client — ogni check-in espone **quanto era vecchia la prova quando è
-arrivata** (`deliveryLagMinutes`): chi è al venue consegna in diretta, chi vive
-di inoltri accumula prove che arrivano già vecchie. Questa frode non si
-previene: si misura, e si lascia in vista.
+arrivata** (`deliveryLagMinutes`): chi è al venue consegna in diretta, chi
+spende uno screenshot ricevuto ore prima accumula prove che arrivano già
+vecchie. Il ritardo smaschera l'inoltro *differito*; quello *in diretta* — un
+bot che gira i codici al volo — ha ritardo quasi zero, e contro di lui resta
+solo il costo del complice, sotto. Questa frode non si previene: si
+restringe, si misura dove si può, e si lascia in vista.
 
 **Perché regge comunque.** Perché la domanda si sdoppia. *Comprare la presenza*
 costa un solo codice inoltrato — e produce la riga più debole del tabellone:
@@ -391,9 +399,11 @@ degrada su quattro gradini, senza che nessuno debba intervenire:
 3. **Nessun tap e nessun codice** (app non installata, Bluetooth spento, browser)
    → l'attendee resta `nessuno` e in dashboard appare come *arrivato, non
    testimoniato*: è esattamente il caso per cui esiste il QR.
-4. **Niente di niente** (telefono scarico, permessi negati, nessuna app) → la
-   dashboard lo evidenzia all'host, che lo verifica di persona con un tap:
-   provenienza `umano`.
+4. **Niente di niente** (telefono scarico, permessi negati, nessuna app) → l'host
+   lo verifica di persona con un tap: provenienza `umano`. (Onestà dovuta:
+   nella demo chi non ha mai prodotto nulla non compare da solo in lista — la
+   riga nasce con la testimonianza. Il «registrato, mai visto» evidenziato
+   d'ufficio richiede il join con gli iscritti, dichiarato in §9.2.)
 
 Nessuno di questi gradini è un errore da gestire. Sono i modi normali in cui la
 serata va, e ognuno ha una risposta prevista.
@@ -487,14 +497,17 @@ contare. Android, con lo scanning via `PendingIntent`, è più generoso. Quindi:
 continua**, e va letta così. Chi vuole permanenza densa con la certezza del
 secondo deve inquadrare il QR ogni tanto o accettare l'incertezza. I numeri
 veri — tassi di risveglio, buchi tipici per piattaforma — non si deducono
-dall'esistenza delle API: si misurano con distribuzioni sul campo, e il
-rollout (§11) è disegnato per raccoglierli dalla fase 0.
+dall'esistenza delle API: si misurano con distribuzioni sul campo. La fase 0
+del rollout (§11) misura i flussi ottici e i passaggi dall'host; i risvegli
+nativi si misurano dalla fase 1, la prima che ha un'app da svegliare.
 
-**La finestra di frode residua è di 30-60 secondi.** Un codice vale la sua finestra
-più la tolleranza di skew. Uno screenshot inoltrato dentro il minuto funziona.
-Reggere l'inganno per una serata richiede un complice presente che inoltri codici
-in continuazione: è il costo che rende l'attacco irrazionale, non un'impossibilità
-matematica.
+**La finestra di frode del canale inoltrato è quella di consegna, non il
+minuto.** Un codice inoltrato e consegnato dichiarando la sua ora di nascita
+resta accreditabile finché la finestra di ritardo è aperta — il conto intero è
+in §6.3. Il ritardo di consegna smaschera l'inoltro differito; quello in
+diretta non si previene: si prezza. Reggere l'inganno per una serata richiede
+un complice presente che alimenti il flusso in continuazione: è il costo che
+rende l'attacco irrazionale, non un'impossibilità matematica.
 
 **Telefono ≠ persona.** La provenienza `macchina` prova che *quel device* era al
 venue. Il legame device↔persona resta il limite strutturale, ed è esattamente
@@ -516,7 +529,8 @@ verificare. Il firmware lo affronta di petto — NTP all'avvio, ora impostabile 
 seriale, e un valore sentinella nel frame finché l'orologio non è valido (§10) —
 ma resta un pezzo di hardware che può degradare in silenzio se nessuno guarda: per
 questo esiste il battito del beacon in dashboard. Ed è l'argomento più forte per
-cui il default di prodotto resta il telefono dell'host: ora di rete sempre giusta,
+cui il default di prodotto resta il telefono dell'host: ora di rete che si
+tiene giusta da sola (e che quando sbaglia produce codici respinti, non frodi),
 connettività, nessuna flotta da gestire in decine di città.
 
 ### 9.2 I limiti di questa implementazione
