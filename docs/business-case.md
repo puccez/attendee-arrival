@@ -625,8 +625,14 @@ permanenza, quanti passaggi dall'host.
 
 **Fase 1 — app nativa.** Il modulo attendee entra nell'app WeRoad esistente:
 region monitoring per il risveglio, cattura BLE dei codici, push one-tap, stesso
-borsellino. **Il server non cambia**: è la stessa API, gli stessi codici, la stessa
-etichetta. Il canale ottico resta il fallback universale.
+borsellino. E il canale radio ha un emettitore definito: la stessa app, giocata
+dall'altro lato — il telefono dell'host in **modalità notaio** deriva il Codice
+Rotante in locale e lo emette come iBeacon, in primo piano e a schermo acceso
+(è il vincolo dichiarato di un notaio-telefono, §9.1), finché un beacon fisso
+non lo rimpiazza in fase 2. Non è un'intenzione: è costruita nel modulo nativo
+e provata nei due versi — notaio iPhone → attendee Android e viceversa. **Il
+server non cambia**: è la stessa API, gli stessi codici, la stessa etichetta.
+Il canale ottico resta il fallback universale.
 
 **Fase 2 — beacon fissi dove conviene.** L'ESP32 nei venue ricorrenti (firmware
 in `firmware/`, §10): canale radio sempre acceso, permanenza densa, zero gesti.
