@@ -170,7 +170,9 @@ riesce a spiegare perché. Qui ogni check-in porta due etichette **ortogonali**.
 
 **Provenienza — chi conferma** (discreta, *non* una scala):
 
-- **macchina** — codici consegnati e verificati. Prova che *quel device* era al venue.
+- **macchina** — codici consegnati e verificati. A rigore prova che quel
+  borsellino *ha ricevuto i codici del venue* — di norma standoci; altrimenti
+  al prezzo di un complice presente (§6.3).
 - **umano** — l'host ha verificato *la persona* davanti a sé.
 - **macchina + umano** — il caso più forte: device e persona.
 - **nessuno** — solo autodichiarazioni (GPS, tap). Registrato, **mai accreditato**.
@@ -201,7 +203,7 @@ Come si legge, in pratica:
 
 | Provenienza | Qualità | Lettura | Uso tipico |
 |---|---|---|---|
-| macchina | 12 codici, 94 min | Presenza piena, permanenza confermata | Tutto: badge, referral, metriche di engagement |
+| macchina | 12 codici, 94 min | Presenza piena, permanenza confermata | Badge e metriche di engagement; per i benefici con valore reale, le policy qui sotto |
 | macchina | 1 codice, 0 min | C'era. Non è rimasto | Presenza sì, ricompense legate alla permanenza no (§6.4) |
 | umano | — | L'host ha visto la persona. Nessuna prova del device | Presenza sì; il rischio è la frode sociale, dichiarata (§9) |
 | macchina + umano | 8 codici, 71 min | Il caso più forte disponibile | Qualunque cosa |
@@ -221,7 +223,7 @@ policy con cui il sistema si presenta:
 |---|---|
 | **Contare la presenza** («c'eri») | `macchina` (≥ 1 codice valido) *oppure* `umano` |
 | **Ricompense di permanenza** (badge, streak) | `macchina` con copertura ≥ 45 minuti e buco più lungo ≤ 20 |
-| **Benefici con valore reale** (referral, selezione host) | `macchina + umano` — o, con l'hardening di §12, `macchina` più biometria al tap |
+| **Benefici con valore reale** (referral, selezione host) | `macchina + umano`; la biometria al tap (hardening §12) si *aggiunge* contro il prestito del telefono — non sostituisce lo sguardo dell'host, perché lega la persona al device, non il device al venue |
 | **Solo dichiarazioni** (GPS, tap) | mai un accreditamento |
 
 Due onestà a corredo. La prima: il ritardo di consegna alto non distingue
@@ -346,9 +348,9 @@ codice inoltrato si distingue da solo dagli altri.
 
 **Cosa succede.** **Accreditato — e va bene così: eri lì davvero.** Ma la riga in
 dashboard dice `machine · 1 codice · 0 minuti di copertura`, accanto a chi ha
-`machine · 12 codici · 94 minuti`. Non serve una soglia arbitraria che decida chi
-è «rimasto abbastanza»: la differenza è visibile e chi consuma il dato la usa come
-crede.
+`machine · 12 codici · 94 minuti`. Non esiste una soglia *globale* che decida chi
+è «rimasto abbastanza»: esistono soglie per uso (§4), e la differenza resta
+visibile accanto al numero.
 
 Qui sta il senso di *la permanenza si conferma*: il sistema non prova a indovinare
 se sei rimasto, **lo misura** — e quando non può misurarlo lo dichiara invece di
@@ -412,7 +414,8 @@ porta peso probatorio, e questo la rende leggera per progetto.
 Le notifiche vengono ignorate: è il caso normale, non l'eccezione. Il sistema
 degrada su quattro gradini, senza che nessuno debba intervenire:
 
-1. **Tap sulla notifica** → check-in confermato, `tap ✓` nella qualità.
+1. **Tap sulla notifica** → il check-in che i codici stanno già producendo si
+   arricchisce di `tap ✓` nella qualità (il tap da solo non crea nulla: §6.2).
 2. **Nessun tap, ma app nativa installata** → non cambia quasi niente: i codici si
    raccolgono via BLE senza gesti. Il check-in si produce comunque, con provenienza
    `macchina`. **Ignorare la notifica non è un fallimento del flusso.**
@@ -440,9 +443,12 @@ non accredita presenze sull'evento B, e chi arriva presto per B non raccoglie
 presenze su A. La consegna dichiara l'evento a cui l'attendee è registrato, e la
 verifica avviene contro *quel* seme.
 
-Non serve nessuna logica dedicata al problema back-to-back: è una conseguenza
-gratuita del seme per-evento. (La finestra oraria dell'evento è modellata ed è il
-punto naturale per un secondo filtro in profondità — vedi §9.2.)
+La *verifica* non ha bisogno di logica dedicata: è una conseguenza gratuita del
+seme per-evento. La logistica dell'emettitore sì, ed è dichiarata: al cambio
+evento il notaio passa al seme nuovo — un cambio di schermata in console — e
+chi arriva presto per B raccoglie per B da quel momento in poi. (La finestra
+oraria dell'evento è modellata ed è il punto naturale per un secondo filtro in
+profondità — vedi §9.2.)
 
 ### 8.2 Attendee senza connessione dati
 
@@ -455,7 +461,7 @@ non è un caso d'errore**, è una modalità di funzionamento prevista.
   bottone «sincronizza», nessuna azione da ricordare.
 - **Il ritardo non degrada la prova**, perché **il codice è autodatante**: quello
   raccolto alle 21:14 prova le 21:14 anche se arriva al server a mezzanotte. La
-  permanenza calcolata è quella vera, non quella osservata dal server.
+  copertura si calcola sui momenti di raccolta, non su quelli d'arrivo al server.
 - **Anche l'host può essere offline.** Per progetto il notaio riceve il seme una
   volta e deriva i codici in locale — è quello che fa l'ESP32 — quindi l'emissione
   sopravvive alla caduta della rete del locale. (Nella demo la console interroga
@@ -529,8 +535,9 @@ diretta non si previene: si prezza. Reggere l'inganno per una serata richiede
 un complice presente che alimenti il flusso in continuazione: è il costo che
 rende l'attacco irrazionale, non un'impossibilità matematica.
 
-**Telefono ≠ persona.** La provenienza `macchina` prova che *quel device* era al
-venue. Il legame device↔persona resta il limite strutturale, ed è esattamente
+**Telefono ≠ persona.** La provenienza `macchina` prova, a rigore, che quel
+device *ha ricevuto i codici del venue* — standoci, o tramite il relay prezzato
+in §6.3. Il legame device↔persona resta il limite strutturale, ed è esattamente
 perché esiste che `umano` è un asse separato e non un gradino inferiore. Si mitiga
 con biometria on-device (FaceID / WebAuthn user verification) e device attestation
 (Play Integrity / App Attest) — hardening previsto, non implementato in questa demo.
@@ -655,7 +662,9 @@ server non cambia**: è la stessa API, gli stessi codici, la stessa etichetta.
 Il canale ottico resta il fallback universale.
 
 **Fase 2 — beacon fissi dove conviene.** L'ESP32 nei venue ricorrenti (firmware
-in `firmware/`, §10): canale radio sempre acceso, permanenza densa, zero gesti.
+in `firmware/`, §10): canale radio sempre acceso, zero gesti, campionamento più
+denso dove il sistema operativo lo concede (Android generoso, iOS opportunistico
+— §9.1: un emettitore continuo non rende continuo il ricevitore).
 Costa pochi euro a venue, si provisiona in un minuto e resta acceso. È
 un'ottimizzazione per venue, non un prerequisito — e ogni venue che non ce l'ha
 continua a funzionare come in fase 0.
@@ -678,8 +687,10 @@ con il DPO; il modello le rende tutte praticabili senza toccare il meccanismo.
 **Testimonianza tra pari.** I telefoni dei partecipanti si rilevano a vicenda via
 BLE e riportano gli incontri: le presenze si corroborano l'un l'altra. Rafforza i
 gruppi senza flussi dedicati, aggiunge ridondanza se il notaio muore a metà serata,
-e soprattutto smaschera il complice remoto — chi riceve codici inoltrati **non è
-visto da nessun pari**, e l'assenza di incontri reciproci è di per sé un segnale.
+e aggiunge un segnale contro il complice remoto — chi riceve codici inoltrati
+**non è visto da nessun pari**. (Un segnale, non uno smascheramento: l'assenza
+di incontri può dipendere anche da permessi, background e telefoni che non
+partecipano.)
 È lo schema delle Exposure Notifications. Fuori dalla prima versione perché alza
 la superficie privacy (i partecipanti si tracciano a vicenda: serve consenso
 dedicato) e la complessità client.
@@ -690,7 +701,9 @@ invece che l'attendee inquadrare quello del venue (un tap NFC al posto del QR
 cambia il trasporto, non la struttura). È l'alternativa più seria a questo
 progetto e merita il confronto esplicito. Cosa compra: il legame più stretto
 fra prova e persona ottenibile senza biometria — un umano guarda chi tiene in
-mano il telefono mentre la macchina verifica il token. Cosa costa: un varco.
+mano il telefono mentre la macchina verifica il token, a patto che il QR
+personale sia legato all'account autenticato, con nome e foto davanti agli
+occhi dell'host. Cosa costa: un varco.
 L'host deve inquadrare ogni arrivato, uno alla volta; a un aperitivo da
 cinquanta persone il check-in torna a essere una coda e l'host un controllore —
 l'esatto contrario dell'obiettivo di prodotto (§5). E cosa rivela il confronto:
