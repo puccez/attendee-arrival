@@ -20,10 +20,28 @@ import {
  * lo swap è preparato (vedi README.md, "Il borsellino e PowerSync").
  */
 
-let database: SQLite.SQLiteDatabase | null = null;
+/**
+ * Si memorizza la PROMESSA d'apertura, non l'handle: all'avvio dell'app il
+ * borsellino viene chiamato da dieci punti insieme, e con l'handle come
+ * guardia ogni chiamata concorrente apriva la propria connessione allo
+ * stesso file — la cache nativa di expo-sqlite ne sfrattava una in corsa e
+ * `prepareAsync` esplodeva con un NullPointerException intermittente. Con la
+ * promessa come guardia la connessione è una per costruzione; se l'apertura
+ * fallisce si molla la presa, così il giro dopo riprova da zero.
+ */
+let database: Promise<SQLite.SQLiteDatabase> | null = null;
 
-async function db(): Promise<SQLite.SQLiteDatabase> {
-  if (database) return database;
+function db(): Promise<SQLite.SQLiteDatabase> {
+  if (!database) {
+    database = openWallet().catch((error) => {
+      database = null;
+      throw error;
+    });
+  }
+  return database;
+}
+
+async function openWallet(): Promise<SQLite.SQLiteDatabase> {
   const opened = await SQLite.openDatabaseAsync("wemeet-wallet.db");
   await opened.execAsync(`
     PRAGMA journal_mode = WAL;
@@ -81,7 +99,6 @@ async function db(): Promise<SQLite.SQLiteDatabase> {
       value TEXT NOT NULL
     );
   `);
-  database = opened;
   return opened;
 }
 
