@@ -212,6 +212,26 @@ metriche di community, gamification, criteri di selezione per gli host — decid
 quanto vale ogni combinazione, con l'informazione davanti agli occhi invece che
 compressa in un numero.
 
+Decide — ma non a mani vuote. Rifiutare il punteggio unico non significa
+rifiutare le soglie: significa che le soglie sono **per uso**, dichiarate e
+discutibili, invece che cablate in un numero che le nasconde. Queste sono le
+policy con cui il sistema si presenta:
+
+| Uso del dato | Soglia consigliata |
+|---|---|
+| **Contare la presenza** («c'eri») | `macchina` (≥ 1 codice valido) *oppure* `umano` |
+| **Ricompense di permanenza** (badge, streak) | `macchina` con copertura ≥ 45 minuti e buco più lungo ≤ 20 |
+| **Benefici con valore reale** (referral, selezione host) | `macchina + umano` — o, con l'hardening di §12, `macchina` più biometria al tap |
+| **Solo dichiarazioni** (GPS, tap) | mai un accreditamento |
+
+Due onestà a corredo. La prima: il ritardo di consegna alto non distingue
+l'offline onesto dall'inoltro differito (§6.3) — per gli usi che contano, la
+riga arrivata in ritardo non si nega d'ufficio, si porta all'host, che la
+serata l'ha vista. La seconda: i numeri sono punti di partenza, si tarano sul
+campo guardando le distribuzioni reali di copertura e buchi (§11). Quello che
+non si tara è la struttura: **ogni uso più prezioso richiede un testimone in
+più, mai un punteggio più alto.**
+
 ---
 
 ## 5. Cosa vedono le persone
@@ -663,6 +683,22 @@ visto da nessun pari**, e l'assenza di incontri reciproci è di per sé un segna
 È lo schema delle Exposure Notifications. Fuori dalla prima versione perché alza
 la superficie privacy (i partecipanti si tracciano a vicenda: serve consenso
 dedicato) e la complessità client.
+
+**L'host-scan, ovvero l'alternativa forte — considerata.** Il ribaltamento del
+design: l'host inquadra un QR personale e dinamico sul telefono dell'attendee,
+invece che l'attendee inquadrare quello del venue (un tap NFC al posto del QR
+cambia il trasporto, non la struttura). È l'alternativa più seria a questo
+progetto e merita il confronto esplicito. Cosa compra: il legame più stretto
+fra prova e persona ottenibile senza biometria — un umano guarda chi tiene in
+mano il telefono mentre la macchina verifica il token. Cosa costa: un varco.
+L'host deve inquadrare ogni arrivato, uno alla volta; a un aperitivo da
+cinquanta persone il check-in torna a essere una coda e l'host un controllore —
+l'esatto contrario dell'obiettivo di prodotto (§5). E cosa rivela il confronto:
+l'host-scan *è* `macchina + umano` — device verificato più sguardo umano — cioè
+la cella più forte che il modello già produce, con una differenza sola: qui è
+il piano mirato per le righe deboli e i benefici sensibili (§4), non il
+pedaggio di tutti. Non un'alternativa scartata: la stessa cella della matrice,
+riservata a quando serve.
 
 **Device attestation e biometria.** Play Integrity / App Attest per l'integrità
 del client, biometria on-device per il legame device↔persona. È l'attacco al
