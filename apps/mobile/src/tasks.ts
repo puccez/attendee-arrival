@@ -75,8 +75,29 @@ export async function drainRadioBacklog(eventId: string): Promise<number> {
   return collected;
 }
 
-/** Un giro completo di risveglio: raccogli, notifica, consegna. */
-export async function handleArrival(options: {
+/**
+ * Un giro completo di risveglio: raccogli, notifica, consegna.
+ *
+ * I giri si mettono in fila, ed è un confine di correttezza: alla scelta
+ * dell'evento geofence, region e replay dello stato iniziale svegliano tutti
+ * insieme, e il controllo «risultavi già dentro?» è un leggi-poi-scrivi —
+ * tre giri intrecciati leggono tutti «fuori» prima che il primo scriva
+ * «dentro», e l'annuncio parte tre volte. In fila, il primo annuncia e gli
+ * altri trovano lo stato già scritto.
+ */
+let arrivalTurn: Promise<void> = Promise.resolve();
+
+export function handleArrival(options: {
+  gpsInside: boolean;
+  notify: boolean;
+  reason?: string;
+}): Promise<void> {
+  const turn = arrivalTurn.then(() => arrivalRound(options));
+  arrivalTurn = turn.catch(() => {});
+  return turn;
+}
+
+async function arrivalRound(options: {
   gpsInside: boolean;
   notify: boolean;
   reason?: string;

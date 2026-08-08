@@ -185,13 +185,23 @@ export function useNotary(
       await logDeviceEvent(eventId, "notaio_acceso");
       setCharge(next);
     } catch (e) {
-      // ApiError = il server ha risposto (e ha detto no); tutto il resto è
-      // rete assente. Il seme scende una volta sola: serve campo solo qui.
+      // Tre casi, tre voci: ApiError = il server ha risposto (e ha detto no);
+      // TypeError = fetch non è partito, cioè rete davvero assente; tutto il
+      // resto NON è rete (un inciampo del borsellino, per dire) e va mostrato
+      // per quello che è — un «serve campo» bugiardo manda a caccia del WiFi
+      // chi ha un problema diverso.
       setError(
         e instanceof Error && "status" in e
           ? e.message
-          : "Il seme non scende senza rete: serve campo, solo per questa volta.",
+          : e instanceof TypeError
+            ? "Il seme non scende senza rete: serve campo, solo per questa volta."
+            : `Il seme non è sceso: ${e instanceof Error ? e.message : String(e)}`,
       );
+      await logDeviceEvent(
+        eventId,
+        "notaio_errore_seme",
+        String(e).slice(0, 200),
+      ).catch(() => {});
     } finally {
       setBusy(false);
     }

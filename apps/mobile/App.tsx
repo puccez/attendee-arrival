@@ -875,7 +875,13 @@ function EventPicker({
   return (
     <View style={styles.screen}>
       <StatusBar style="light" />
-      <ScrollView contentContainerStyle={styles.content}>
+      {/* handled: col tastierino aperto (hai appena scritto il nome) il primo
+          tocco su un evento deve SCEGLIERLO, non limitarsi a chiudere la
+          tastiera — senza questo, il primo tap della lista muore sempre lì. */}
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
         <Hero name="A quale evento vai?" />
         <View style={[styles.card, styles.sheet]}>
           <Text style={styles.cardSub}>Prima dicci chi sei, poi tocca il tuo evento.</Text>
