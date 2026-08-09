@@ -7,8 +7,9 @@ Business case WeRoad — risposta di Emanuele Puccetti, agosto 2026.
 - **Demo live** (funziona da telefono e da laptop, niente da installare): https://attendee-arrival-web.vercel.app
 - **API** (la cucitura di verifica, in produzione su Vercel + Postgres): https://attendee-arrival-api.vercel.app/health
 - **Sandbox d'attacco**: si apre dalla console dell'evento che crei, o direttamente da `…/attacker/<id-evento>`
-- **Codice**: Turborepo TypeScript nello stack di WeRoad — NestJS, Nuxt/Vue, core
-  condiviso — più il firmware C del beacon ESP32, con test di parità fra i due
+- **Codice**: https://github.com/puccez/attendee-arrival — Turborepo TypeScript
+  nello stack di WeRoad (NestJS, Nuxt/Vue, core condiviso, app Expo/React
+  Native) più il firmware C del beacon ESP32, con test di parità fra i due
 
 **Come leggere.** In due minuti: la tabella di tracciabilità (§1) e il meccanismo (§3).
 In dieci: aggiungi l'anti-frode (§6) e apri la demo mentre lo leggi. In mezz'ora:
@@ -521,7 +522,11 @@ essere ritardato o soppresso dal sistema: un aiuto, non un meccanismo su cui
 contare. Android, con lo scanning via `PendingIntent`, è più generoso. Quindi:
 **la permanenza è un limite inferiore osservato, non una misurazione
 continua**, e va letta così. Chi vuole permanenza densa con la certezza del
-secondo deve inquadrare il QR ogni tanto o accettare l'incertezza. I numeri
+secondo deve inquadrare il QR ogni tanto o accettare l'incertezza. Non è una
+previsione, è una riga vera di collaudo: un iPhone lasciato una notte intera
+accanto al beacon-notaio, schermo bloccato, chiude a `25 codici · 100 minuti
+di copertura · buco più lungo 81` — il telefono che dorme testimonia poco, il
+sistema accredita solo quello, e il numero dice esattamente ciò che è successo. I numeri
 veri — tassi di risveglio, buchi tipici per piattaforma — non si deducono
 dall'esistenza delle API: si misurano con distribuzioni sul campo. La fase 0
 del rollout (§11) misura i flussi ottici e i passaggi dall'host; i risvegli
