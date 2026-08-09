@@ -3,7 +3,8 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".output/**", ".nuxt/**"]
+      "outputs": ["dist/**", ".output/**", ".nuxt/**", ".vercel/output/**"],
+      "env": ["NUXT_PUBLIC_API_BASE"]
     },
     "test": {
       "dependsOn": ["^build"]
