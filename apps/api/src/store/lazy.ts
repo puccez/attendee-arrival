@@ -3,14 +3,22 @@ import type { WeMeetEvent } from "../events/events.service.js";
 import {
   InMemoryCheckInsStore,
   InMemoryEventsStore,
+  InMemoryNotaryDevicesStore,
   InMemoryTelemetryStore,
 } from "./in-memory.js";
-import { PgCheckInsStore, PgClient, PgEventsStore, PgTelemetryStore } from "./pg.js";
+import {
+  PgCheckInsStore,
+  PgClient,
+  PgEventsStore,
+  PgNotaryDevicesStore,
+  PgTelemetryStore,
+} from "./pg.js";
 import type {
   AttendeeState,
   CheckInsStore,
   DeviceEvent,
   EventsStore,
+  NotaryDevicesStore,
   TelemetryStore,
 } from "./store.js";
 
@@ -24,6 +32,7 @@ interface Backing {
   events: EventsStore;
   checkIns: CheckInsStore;
   telemetry: TelemetryStore;
+  notaryDevices: NotaryDevicesStore;
 }
 
 let backing: Backing | null = null;
@@ -38,16 +47,19 @@ export function resolveBacking(): Backing {
         events: new PgEventsStore(client),
         checkIns: new PgCheckInsStore(client),
         telemetry: new PgTelemetryStore(client),
+        notaryDevices: new PgNotaryDevicesStore(client),
       };
     } else {
       // I satelliti prima dell'evento: chi cancella deve poterli svuotare.
       const checkIns = new InMemoryCheckInsStore();
       const telemetry = new InMemoryTelemetryStore();
+      const notaryDevices = new InMemoryNotaryDevicesStore();
       backing = {
         kind: "memory",
-        events: new InMemoryEventsStore([checkIns, telemetry]),
+        events: new InMemoryEventsStore([checkIns, telemetry, notaryDevices]),
         checkIns,
         telemetry,
+        notaryDevices,
       };
     }
   }

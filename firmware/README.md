@@ -74,17 +74,35 @@ arduino-cli upload -b esp32:esp32:esp32 -p /dev/ttyUSB0 firmware/attendee_beacon
 arduino-cli monitor -p /dev/ttyUSB0 -c baudrate=115200
 ```
 
-## Provisioning (senza riflashare)
+## Incarico via web (la strada comoda)
 
-Il seme è **per-evento**: cambia a ogni evento. Si passa a caldo dal monitor
-seriale (115200 baud) e resta in NVS.
+Con una rete WiFi configurata il beacon **batte** verso l'API ogni 20 s
+(`POST /notary-devices/:id/heartbeat`, id derivato dal MAC: `esp32-570cc8`)
+e la risposta è il suo incarico: evento + seme, oppure `libero`. Dalla home
+web si vede il beacon («connesso adesso» = battito recente), gli si assegna
+un evento e glielo si revoca: al battito successivo la scheda scarica il
+seme — o lo dimentica. **Senza incarico il beacon tace**: niente
+advertising, perché un UUID in onda senza evento sveglierebbe app a caso.
+
+Il verso è pull di necessità (la scheda sta dietro NAT), la risposta è testo
+semplice (`evento <id>` + `seme <hex>`) perché il parser sul
+microcontrollore deve stare in dieci righe. TLS senza verifica del
+certificato: limite dichiarato nello sketch, il pinning della CA è il pezzo
+di produzione che manca.
+
+## Provisioning via seriale (senza rete, o senza web)
+
+Il monitor seriale (115200 baud) resta la strada sovrana: un seme messo con
+`seed` **non** viene toccato da un `libero` del server — solo ciò che il
+server ha dato, il server può riprendersi.
 
 ```
 seed <hex>              il seme restituito da POST /events (64 char)
 uuid <uuid>             cambia l'UUID di prossimità (allinea anche l'app!)
-wifi <ssid> <password>  rete per la sincronizzazione NTP
+wifi <ssid> <password>  rete per NTP e battito
+api <url>               l'API del battito (default: produzione; utile in dev)
 time <epoch_ms>         imposta l'ora a mano (venue senza WiFi)
-status                  stato: ora, seme, codice corrente
+status                  stato: device id, incarico, ora, battito, codice
 reset                   pulisce la NVS e riavvia
 ```
 

@@ -386,6 +386,92 @@ describe("POST /events/:id/deliveries — la cucitura via HTTP", () => {
     expect(mai.status).toBe(404);
   });
 
+  it("il beacon fisso: battito, incarico, revoca — e il seme solo verso il device", async () => {
+    // Un ESP32 mai visto si presenta: entra nel registro, ma è libero.
+    const primo = await request(http)
+      .post("/notary-devices/esp32-test/heartbeat")
+      .send({ clockSynced: true });
+    expect(primo.status).toBe(201);
+    expect(primo.text).toBe("libero\n");
+
+    let registro = await request(http).get("/notary-devices");
+    expect(registro.status).toBe(200);
+    let riga = registro.body.find(
+      (d: { deviceId: string }) => d.deviceId === "esp32-test",
+    );
+    expect(riga.lastSeenAt).toBe(NOW.toISOString());
+    expect(riga.event).toBeNull();
+
+    // L'incarico dal web: il battito successivo consegna evento e seme.
+    const event = await createEvent();
+    const incarico = await request(http)
+      .put("/notary-devices/esp32-test/assignment")
+      .send({ eventId: event.id });
+    expect(incarico.status).toBe(204);
+
+    const battito = await request(http)
+      .post("/notary-devices/esp32-test/heartbeat")
+      .send({ code: "123456", clockSynced: true });
+    expect(battito.text).toBe(`evento ${event.id}\nseme ${event.seed}\n`);
+
+    // Il registro per il web ha il nome dell'evento ma MAI il seme: la
+    // porta del seme è solo quella del battito, che guarda verso il device.
+    registro = await request(http).get("/notary-devices");
+    riga = registro.body.find(
+      (d: { deviceId: string }) => d.deviceId === "esp32-test",
+    );
+    expect(riga.event).toEqual({ id: event.id, name: "WeMeet Milano" });
+    expect(riga.status).toEqual({ code: "123456", clockSynced: true });
+    expect(JSON.stringify(registro.body)).not.toContain(event.seed);
+
+    // La revoca: il beacon torna libero al battito successivo.
+    const revoca = await request(http).delete(
+      "/notary-devices/esp32-test/assignment",
+    );
+    expect(revoca.status).toBe(204);
+    const dopo = await request(http)
+      .post("/notary-devices/esp32-test/heartbeat")
+      .send({ clockSynced: true });
+    expect(dopo.text).toBe("libero\n");
+
+    // Revocare un beacon mai registrato è la revoca di niente: si dice.
+    const mai = await request(http).delete(
+      "/notary-devices/esp32-fantasma/assignment",
+    );
+    expect(mai.status).toBe(404);
+
+    // Incaricare su un evento inesistente non crea incarichi.
+    const rotto = await request(http)
+      .put("/notary-devices/esp32-test/assignment")
+      .send({ eventId: "non-esiste" });
+    expect(rotto.status).toBe(404);
+
+    // Si può incaricare un beacon mai visto: l'incarico lo aspetta.
+    await request(http)
+      .put("/notary-devices/esp32-in-arrivo/assignment")
+      .send({ eventId: event.id });
+    registro = await request(http).get("/notary-devices");
+    riga = registro.body.find(
+      (d: { deviceId: string }) => d.deviceId === "esp32-in-arrivo",
+    );
+    expect(riga.lastSeenAt).toBeNull();
+    expect(riga.event.id).toBe(event.id);
+
+    // L'evento che muore LIBERA i suoi beacon, non li cancella.
+    await request(http)
+      .put("/notary-devices/esp32-test/assignment")
+      .send({ eventId: event.id });
+    await request(http).delete(`/events/${event.id}`);
+    const orfano = await request(http)
+      .post("/notary-devices/esp32-test/heartbeat")
+      .send({ clockSynced: true });
+    expect(orfano.text).toBe("libero\n");
+    registro = await request(http).get("/notary-devices");
+    for (const device of registro.body) {
+      expect(device.event).toBeNull();
+    }
+  });
+
   it("il seme non trapela da nessun'altra porta", async () => {
     // L'attendee riceve il seme via radio, mai via API: le risposte che un
     // borsellino può vedere non devono contenerlo — né come campo, né

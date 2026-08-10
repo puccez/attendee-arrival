@@ -62,3 +62,37 @@ export interface CheckInsStore {
   ): Promise<void>;
   list(eventId: string): Promise<AttendeeCheckIn[]>;
 }
+
+/** Ciò che il beacon fisso racconta di sé a ogni battito. */
+export interface NotaryDeviceStatus {
+  /** Il codice in onda in questo momento, se l'orologio è sincronizzato. */
+  code?: string;
+  clockSynced?: boolean;
+}
+
+export interface NotaryDevice {
+  deviceId: string;
+  /** Mai visto = incaricato da web prima ancora del primo battito. */
+  lastSeenAt: Date | null;
+  eventId: string | null;
+  status: NotaryDeviceStatus | null;
+}
+
+/**
+ * Il registro dei beacon fissi (ESP32): chi si è fatto sentire, quando, e
+ * con quale incarico. Il device sta dietro NAT, quindi il verso è sempre
+ * pull: il web scrive l'incarico qui, il battito successivo lo consegna.
+ */
+export interface NotaryDevicesStore {
+  /** Il battito: aggiorna vista e stato, ritorna l'incarico corrente. */
+  heartbeat(
+    deviceId: string,
+    status: NotaryDeviceStatus,
+    at: Date,
+  ): Promise<string | null>;
+  list(): Promise<NotaryDevice[]>;
+  /** Upsert: si può incaricare un beacon mai visto — l'incarico lo aspetta. */
+  assign(deviceId: string, eventId: string): Promise<void>;
+  /** `false` se il device non è nel registro: la porta HTTP ne fa un 404. */
+  unassign(deviceId: string): Promise<boolean>;
+}

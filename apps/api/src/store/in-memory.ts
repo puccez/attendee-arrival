@@ -5,6 +5,9 @@ import type {
   CheckInsStore,
   DeviceEvent,
   EventsStore,
+  NotaryDevice,
+  NotaryDevicesStore,
+  NotaryDeviceStatus,
   TelemetryStore,
 } from "./store.js";
 
@@ -77,6 +80,54 @@ export class InMemoryCheckInsStore implements CheckInsStore {
     this.results.delete(eventId);
     for (const key of this.states.keys()) {
       if (key.startsWith(`${eventId}:`)) this.states.delete(key);
+    }
+  }
+}
+
+export class InMemoryNotaryDevicesStore implements NotaryDevicesStore {
+  readonly devices = new Map<string, NotaryDevice>();
+
+  async heartbeat(
+    deviceId: string,
+    status: NotaryDeviceStatus,
+    at: Date,
+  ): Promise<string | null> {
+    const known = this.devices.get(deviceId);
+    const device: NotaryDevice = {
+      deviceId,
+      lastSeenAt: at,
+      eventId: known?.eventId ?? null,
+      status,
+    };
+    this.devices.set(deviceId, device);
+    return device.eventId;
+  }
+
+  async list(): Promise<NotaryDevice[]> {
+    return [...this.devices.values()];
+  }
+
+  async assign(deviceId: string, eventId: string): Promise<void> {
+    const known = this.devices.get(deviceId);
+    this.devices.set(deviceId, {
+      deviceId,
+      lastSeenAt: known?.lastSeenAt ?? null,
+      eventId,
+      status: known?.status ?? null,
+    });
+  }
+
+  async unassign(deviceId: string): Promise<boolean> {
+    const known = this.devices.get(deviceId);
+    if (!known) return false;
+    known.eventId = null;
+    return true;
+  }
+
+  /** L'evento se ne va: il beacon resta nel registro, ma libero. */
+  dropEvent(eventId: string): void {
+    for (const device of this.devices.values()) {
+      if (device.eventId === eventId) device.eventId = null;
     }
   }
 }

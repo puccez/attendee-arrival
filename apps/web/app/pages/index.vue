@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { useApi, type ApiEvent } from "../composables/useApi";
+import {
+  useApi,
+  type ApiEvent,
+  type ApiNotaryDevice,
+} from "../composables/useApi";
 
 const api = useApi();
 const router = useRouter();
@@ -95,7 +99,83 @@ async function removeEvent(e: ApiEvent) {
   }
 }
 
-onMounted(refreshEvents);
+/*
+ * I beacon fissi (ESP32). Il verso è sempre pull: la scheda sta dietro NAT,
+ * quindi qui si scrive l'incarico nel registro e si aspetta il battito che
+ * lo raccoglie (~20 s). «Connesso adesso» è per definizione un battito
+ * recente: due battiti mancati e non lo è più.
+ */
+const devices = ref<ApiNotaryDevice[]>([]);
+const chosenEvent = ref<Record<string, string>>({});
+const busyDevice = ref("");
+const adesso = ref(Date.now());
+let devicesTimer: ReturnType<typeof setInterval> | undefined;
+
+async function refreshDevices() {
+  adesso.value = Date.now();
+  try {
+    devices.value = await api.get<ApiNotaryDevice[]>("/notary-devices");
+  } catch {
+    // il registro può mancare (API vecchia): il resto della home non ne soffre
+  }
+}
+
+function vistoDa(device: ApiNotaryDevice): string {
+  if (!device.lastSeenAt) {
+    return "mai sentito: si presenterà da solo al primo battito";
+  }
+  const secondiFa = (adesso.value - Date.parse(device.lastSeenAt)) / 1000;
+  if (secondiFa < 45) {
+    return device.status?.code
+      ? `connesso adesso · in onda ${device.status.code}`
+      : "connesso adesso";
+  }
+  if (secondiFa < 3600) return `visto ${Math.round(secondiFa / 60)} min fa`;
+  return `visto l'ultima volta ${new Date(device.lastSeenAt).toLocaleString("it-IT")}`;
+}
+
+function connesso(device: ApiNotaryDevice): boolean {
+  if (!device.lastSeenAt) return false;
+  return adesso.value - Date.parse(device.lastSeenAt) < 45_000;
+}
+
+async function assignDevice(device: ApiNotaryDevice) {
+  const eventId = chosenEvent.value[device.deviceId] ?? events.value[0]?.id;
+  if (!eventId) return;
+  busyDevice.value = device.deviceId;
+  error.value = "";
+  try {
+    await api.put(`/notary-devices/${device.deviceId}/assignment`, { eventId });
+    await refreshDevices();
+  } catch (e) {
+    error.value = `API non raggiungibile: ${String(e)}`;
+  } finally {
+    busyDevice.value = "";
+  }
+}
+
+async function unassignDevice(device: ApiNotaryDevice) {
+  busyDevice.value = device.deviceId;
+  error.value = "";
+  try {
+    await api.del(`/notary-devices/${device.deviceId}/assignment`);
+    await refreshDevices();
+  } catch (e) {
+    error.value = `API non raggiungibile: ${String(e)}`;
+  } finally {
+    busyDevice.value = "";
+  }
+}
+
+onMounted(() => {
+  void refreshEvents();
+  void refreshDevices();
+  devicesTimer = setInterval(() => void refreshDevices(), 10_000);
+});
+
+onUnmounted(() => {
+  if (devicesTimer) clearInterval(devicesTimer);
+});
 </script>
 
 <template>
@@ -154,6 +234,55 @@ onMounted(refreshEvents);
               @click="removeEvent(e)"
             >
               {{ deletingId === e.id ? "Elimino…" : "Elimina" }}
+            </button>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h2>Il beacon del venue</h2>
+      <p class="muted">
+        Un ESP32 con l'incarico di emettere il codice: si assegna da qui, e
+        la scheda lo raccoglie al battito successivo (circa venti secondi).
+      </p>
+      <p v-if="devices.length === 0" class="muted">
+        Nessun beacon si è ancora fatto sentire.
+      </p>
+      <ul v-else class="events">
+        <li v-for="d in devices" :key="d.deviceId" class="event-row">
+          <div>
+            <div class="event-name device-id">
+              {{ d.deviceId }}
+              <span v-if="connesso(d)" class="live">‧ acceso</span>
+            </div>
+            <div class="event-when">{{ vistoDa(d) }}</div>
+            <div class="event-when">
+              {{ d.event ? `incaricato per «${d.event.name}»` : "libero" }}
+            </div>
+          </div>
+          <div class="event-actions">
+            <select
+              v-model="chosenEvent[d.deviceId]"
+              :disabled="events.length === 0"
+            >
+              <option v-for="e in events" :key="e.id" :value="e.id">
+                {{ e.name }}
+              </option>
+            </select>
+            <button
+              :disabled="busyDevice === d.deviceId || events.length === 0"
+              @click="assignDevice(d)"
+            >
+              Assegna
+            </button>
+            <button
+              v-if="d.event"
+              class="delete"
+              :disabled="busyDevice === d.deviceId"
+              @click="unassignDevice(d)"
+            >
+              Libera
             </button>
           </div>
         </li>
@@ -223,5 +352,30 @@ button.delete:hover {
 button.delete:disabled {
   background: none;
   color: var(--brand-soft);
+}
+/* L'id della scheda è un fatto tecnico: monospazio, come i codici. */
+.device-id {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 14px;
+}
+/* «Acceso» non è un'azione: niente corallo, solo inchiostro pieno. */
+.live {
+  color: var(--ink-strong);
+  font-weight: 600;
+}
+.event-actions select {
+  height: 32px;
+  font-size: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: #fff;
+  color: var(--ink-strong);
+  padding: 0 8px;
+  max-width: 220px;
+}
+.event-actions button:not(.delete) {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 14px;
 }
 </style>

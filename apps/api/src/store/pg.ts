@@ -6,6 +6,9 @@ import type {
   CheckInsStore,
   DeviceEvent,
   EventsStore,
+  NotaryDevice,
+  NotaryDevicesStore,
+  NotaryDeviceStatus,
   TelemetryStore,
 } from "./store.js";
 
@@ -68,6 +71,15 @@ export class PgClient {
            kind text NOT NULL,
            detail text,
            PRIMARY KEY (event_id, device_id, at, kind)
+         );
+         -- I beacon fissi: hardware, non dati dell'evento. Niente vincolo
+         -- referenziale di proposito — l'evento che muore LIBERA il beacon
+         -- (event_id a NULL nella transazione di delete), non lo cancella.
+         CREATE TABLE IF NOT EXISTS notary_devices (
+           device_id text PRIMARY KEY,
+           last_seen_at timestamptz,
+           event_id uuid,
+           status jsonb
          );`,
       )
       .then(() => undefined);
@@ -142,6 +154,12 @@ export class PgEventsStore implements EventsStore {
       await client.query("BEGIN");
       await client.query(`DELETE FROM device_events WHERE event_id = $1`, [id]);
       await client.query(`DELETE FROM check_ins WHERE event_id = $1`, [id]);
+      // Il beacon fisso sopravvive al suo evento: torna libero, e al
+      // prossimo battito il server gli risponderà proprio così.
+      await client.query(
+        `UPDATE notary_devices SET event_id = NULL WHERE event_id = $1`,
+        [id],
+      );
       const res = await client.query(`DELETE FROM events WHERE id = $1`, [id]);
       await client.query("COMMIT");
       return (res.rowCount ?? 0) > 0;
@@ -151,6 +169,61 @@ export class PgEventsStore implements EventsStore {
     } finally {
       client.release();
     }
+  }
+}
+
+export class PgNotaryDevicesStore implements NotaryDevicesStore {
+  constructor(private readonly db: PgClient) {}
+
+  async heartbeat(
+    deviceId: string,
+    status: NotaryDeviceStatus,
+    at: Date,
+  ): Promise<string | null> {
+    await this.db.ensureSchema();
+    const { rows } = await this.db.pool.query(
+      `INSERT INTO notary_devices (device_id, last_seen_at, status)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (device_id) DO UPDATE SET
+         last_seen_at = EXCLUDED.last_seen_at,
+         status = EXCLUDED.status
+       RETURNING event_id`,
+      [deviceId, at, JSON.stringify(status)],
+    );
+    return rows[0]?.event_id ?? null;
+  }
+
+  async list(): Promise<NotaryDevice[]> {
+    await this.db.ensureSchema();
+    const { rows } = await this.db.pool.query(
+      `SELECT device_id, last_seen_at, event_id, status
+       FROM notary_devices ORDER BY last_seen_at DESC NULLS LAST`,
+    );
+    return rows.map((r) => ({
+      deviceId: r.device_id,
+      lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at) : null,
+      eventId: r.event_id ?? null,
+      status: r.status ?? null,
+    }));
+  }
+
+  async assign(deviceId: string, eventId: string): Promise<void> {
+    await this.db.ensureSchema();
+    await this.db.pool.query(
+      `INSERT INTO notary_devices (device_id, event_id)
+       VALUES ($1, $2)
+       ON CONFLICT (device_id) DO UPDATE SET event_id = EXCLUDED.event_id`,
+      [deviceId, eventId],
+    );
+  }
+
+  async unassign(deviceId: string): Promise<boolean> {
+    await this.db.ensureSchema();
+    const res = await this.db.pool.query(
+      `UPDATE notary_devices SET event_id = NULL WHERE device_id = $1`,
+      [deviceId],
+    );
+    return (res.rowCount ?? 0) > 0;
   }
 }
 

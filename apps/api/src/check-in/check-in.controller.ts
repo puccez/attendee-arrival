@@ -4,10 +4,12 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   Inject,
   Param,
   Post,
+  Put,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import jwt from "jsonwebtoken";
@@ -15,6 +17,7 @@ import { z } from "zod";
 import { deriveRotatingCode } from "@attendee-arrival/core";
 import { CLOCK, type Clock } from "../clock.js";
 import { EventsService } from "../events/events.service.js";
+import { NotaryDevicesService } from "../notary/notary-devices.service.js";
 import { resolveBacking } from "../store/lazy.js";
 import { CheckInsService, type AttendeeCheckIn } from "./check-ins.service.js";
 
@@ -61,6 +64,11 @@ const telemetrySchema = z.object({
     .max(500),
 });
 
+const heartbeatSchema = z.object({
+  code: z.string().max(16).optional(),
+  clockSynced: z.boolean().optional(),
+});
+
 const createEventSchema = z.object({
   name: z.string().min(1),
   startsAt: z.coerce.date(),
@@ -79,6 +87,8 @@ export class CheckInController {
   constructor(
     @Inject(EventsService) private readonly events: EventsService,
     @Inject(CheckInsService) private readonly checkIns: CheckInsService,
+    @Inject(NotaryDevicesService)
+    private readonly notaryDevices: NotaryDevicesService,
     @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
@@ -244,5 +254,52 @@ export class CheckInController {
   ): Promise<AttendeeCheckIn[]> {
     await this.events.get(eventId); // 404 se sconosciuto
     return this.checkIns.list(eventId);
+  }
+
+  /**
+   * Il battito del beacon fisso: «sono vivo, emetto questo» — e la risposta
+   * è il suo incarico. La risposta è testo semplice di proposito: il client
+   * è un microcontrollore, e due parole per riga valgono un parser da dieci
+   * righe in C. È la porta del seme dei beacon fissi (gemella di GET /seed):
+   * stesso livello di fiducia, stessi limiti dichiarati (sezione 9.2 del
+   * business case). Il seme viaggia SOLO verso il device, mai verso il web.
+   */
+  @Post("notary-devices/:deviceId/heartbeat")
+  @Header("content-type", "text/plain; charset=utf-8")
+  async notaryHeartbeat(
+    @Param("deviceId") deviceId: string,
+    @Body() body: unknown,
+  ): Promise<string> {
+    const parsed = heartbeatSchema.safeParse(body);
+    if (!parsed.success) throw new BadRequestException(parsed.error.issues);
+    const event = await this.notaryDevices.heartbeat(deviceId, parsed.data);
+    return event ? `evento ${event.id}\nseme ${event.seed}\n` : "libero\n";
+  }
+
+  /** Il registro per il web: chi si è fatto sentire, quando, con che incarico. */
+  @Get("notary-devices")
+  listNotaryDevices() {
+    return this.notaryDevices.list();
+  }
+
+  /** L'incarico dal web: al prossimo battito il beacon lo raccoglie. */
+  @Put("notary-devices/:deviceId/assignment")
+  @HttpCode(204)
+  async assignNotaryDevice(
+    @Param("deviceId") deviceId: string,
+    @Body() body: unknown,
+  ): Promise<void> {
+    const parsed = z.object({ eventId: z.string().min(1) }).safeParse(body);
+    if (!parsed.success) throw new BadRequestException(parsed.error.issues);
+    await this.notaryDevices.assign(deviceId, parsed.data.eventId);
+  }
+
+  /** La revoca: al prossimo battito il beacon cancella il seme e tace. */
+  @Delete("notary-devices/:deviceId/assignment")
+  @HttpCode(204)
+  async unassignNotaryDevice(
+    @Param("deviceId") deviceId: string,
+  ): Promise<void> {
+    await this.notaryDevices.unassign(deviceId);
   }
 }

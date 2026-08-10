@@ -28,6 +28,17 @@
 #define BEACON_DEFAULT_WIFI_SSID ""
 #define BEACON_DEFAULT_WIFI_PASSWORD ""
 
+/*
+ * L'API del battito: il beacon si presenta ogni BEACON_HEARTBEAT_INTERVAL_MS
+ * e la risposta è il suo incarico (evento + seme, o «libero»). Il verso è
+ * pull di necessità — la scheda sta dietro NAT — ed è anche ciò che rende
+ * il web capace di dire «connesso adesso»: un battito recente.
+ * Sovrascrivibile via seriale con `api <url>` (utile per puntare a un
+ * server locale in sviluppo).
+ */
+#define BEACON_DEFAULT_API_BASE "https://attendee-arrival-api.vercel.app"
+#define BEACON_HEARTBEAT_INTERVAL_MS 20000
+
 /* Potenza calibrata a 1 m dichiarata nel frame iBeacon (int8, dBm). */
 /* Nome annunciato nella scan response: serve solo a chi verifica con uno
  * scanner BLE generico (il payload iBeacon riempie già i 31 byte). */

@@ -25,9 +25,11 @@
  * Dipendenza: NimBLE-Arduino 2.x. Istruzioni in firmware/README.md.
  */
 
+#include <HTTPClient.h>
 #include <NimBLEDevice.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <sys/time.h>
 #include <time.h>
 
@@ -42,10 +44,22 @@ static String seedHex = BEACON_DEFAULT_SEED;
 static String uuidText = BEACON_DEFAULT_UUID;
 static String wifiSsid = BEACON_DEFAULT_WIFI_SSID;
 static String wifiPassword = BEACON_DEFAULT_WIFI_PASSWORD;
+static String apiBase = BEACON_DEFAULT_API_BASE;
+static String assignedEvent = "";
+/* Il seme messo a mano da seriale è sovrano: un «libero» dal server non lo
+ * tocca. Solo ciò che il server ha dato, il server può riprendersi. */
+static bool seedFromServer = false;
 
 static uint8_t proximityUuid[16];
 static int64_t lastWindow = INT64_MIN;
 static bool clockSynced = false;
+static bool advertisingSilenced = false;
+
+/* Il seme di fabbrica è un segnaposto, non un incarico: senza un seme vero
+ * il beacon TACE — un UUID in onda senza evento sveglierebbe app a caso. */
+static bool hasSeed() {
+  return seedHex.length() >= 16 && seedHex != BEACON_DEFAULT_SEED;
+}
 
 /* ------------------------------------------------------------- orologio */
 
@@ -120,6 +134,22 @@ static void advertiseCode(uint16_t major, uint16_t minor) {
 
 /* Riemette subito, senza aspettare il cambio di finestra. */
 static void refreshAdvertising(bool force) {
+  if (!hasSeed()) {
+    if (force || !advertisingSilenced) {
+      advertisingSilenced = true;
+      lastWindow = INT64_MIN;
+      clockSynced = false;
+      advertising->stop();
+      Serial.println("[beacon] senza incarico il beacon tace — assegnalo dal "
+                     "web o con `seed <hex>`");
+    }
+    return;
+  }
+  if (advertisingSilenced) {
+    advertisingSilenced = false;
+    force = true;
+  }
+
   if (!clockLooksValid()) {
     if (force || clockSynced) {
       clockSynced = false;
@@ -157,6 +187,9 @@ static void loadSettings() {
   uuidText = prefs.getString("uuid", BEACON_DEFAULT_UUID);
   wifiSsid = prefs.getString("ssid", BEACON_DEFAULT_WIFI_SSID);
   wifiPassword = prefs.getString("pass", BEACON_DEFAULT_WIFI_PASSWORD);
+  apiBase = prefs.getString("api", BEACON_DEFAULT_API_BASE);
+  assignedEvent = prefs.getString("event", "");
+  seedFromServer = prefs.getBool("srvseed", false);
 
   if (!parseUuid(uuidText, proximityUuid)) {
     Serial.println("[beacon] UUID non valido, torno al default");
@@ -195,6 +228,122 @@ static void connectWifiAndSyncClock() {
                                    : "[beacon] NTP non ha risposto");
 }
 
+/* ------------------------------------------------------------- battito */
+
+/* "AA:BB:CC:DD:EE:FF" → "esp32-ddeeff": corto, stabile, senza segreti. */
+static String deviceIdText() {
+  String mac = WiFi.macAddress();
+  mac.replace(":", "");
+  mac.toLowerCase();
+  return "esp32-" + mac.substring(6);
+}
+
+static uint32_t lastHeartbeatAt = 0;
+static bool heartbeatEverDone = false;
+static String heartbeatNote = "mai battuto";
+
+/*
+ * Il battito: «sono vivo, emetto questo» — e la risposta è l'incarico.
+ * Due parole per riga (`evento <id>` + `seme <hex>`, oppure `libero`):
+ * il server parla il dialetto del microcontrollore, non viceversa.
+ *
+ * TLS senza verifica del certificato: su questa scheda il pinning della CA
+ * è il pezzo di produzione che manca, e va detto — un MITM attivo sulla
+ * rete del venue potrebbe leggere il seme in transito. Stesso livello di
+ * fiducia del resto delle porte demo (business case, sezione 9.2).
+ */
+static void heartbeat() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  HTTPClient http;
+  http.setTimeout(4000);
+  String url = apiBase + "/notary-devices/" + deviceIdText() + "/heartbeat";
+  WiFiClientSecure secure;
+  WiFiClient plain;
+  bool began;
+  if (url.startsWith("https://")) {
+    secure.setInsecure();
+    began = http.begin(secure, url);
+  } else {
+    began = http.begin(plain, url);
+  }
+  if (!began) {
+    heartbeatNote = "URL non valido";
+    return;
+  }
+
+  http.addHeader("Content-Type", "application/json");
+  String body = "{\"clockSynced\":";
+  body += clockLooksValid() ? "true" : "false";
+  if (clockLooksValid() && hasSeed()) {
+    char code[ROTATING_CODE_DIGITS + 1];
+    rotating_code_string(seedHex.c_str(), nowEpochMs(), code);
+    body += ",\"code\":\"";
+    body += code;
+    body += "\"";
+  }
+  body += "}";
+
+  int status = http.POST(body);
+  if (status < 200 || status >= 300) {
+    heartbeatNote = "HTTP " + String(status);
+    http.end();
+    return;
+  }
+  String reply = http.getString();
+  http.end();
+
+  if (reply.startsWith("evento ")) {
+    int eol = reply.indexOf('\n');
+    String eventId = reply.substring(7, eol < 0 ? (int)reply.length() : eol);
+    eventId.trim();
+    String newSeed = "";
+    int at = reply.indexOf("seme ");
+    if (at >= 0) {
+      int end = reply.indexOf('\n', at);
+      newSeed = reply.substring(at + 5, end < 0 ? (int)reply.length() : end);
+      newSeed.trim();
+    }
+    if (newSeed.length() >= 16 &&
+        (newSeed != seedHex || eventId != assignedEvent)) {
+      seedHex = newSeed;
+      assignedEvent = eventId;
+      seedFromServer = true;
+      prefs.putString("seed", seedHex);
+      prefs.putString("event", assignedEvent);
+      prefs.putBool("srvseed", true);
+      Serial.printf("[beacon] incarico ricevuto: evento %s\n", eventId.c_str());
+      refreshAdvertising(true);
+    }
+    heartbeatNote = "incaricato";
+  } else if (reply.startsWith("libero")) {
+    if (hasSeed() && seedFromServer) {
+      /* L'igiene del seme vale anche per l'hardware: revocato = dimenticato. */
+      seedHex = BEACON_DEFAULT_SEED;
+      assignedEvent = "";
+      seedFromServer = false;
+      prefs.putString("seed", seedHex);
+      prefs.putString("event", "");
+      prefs.putBool("srvseed", false);
+      Serial.println("[beacon] incarico revocato: seme dimenticato");
+      refreshAdvertising(true);
+    }
+    heartbeatNote = hasSeed() ? "libero (seme da seriale: lo tengo)" : "libero";
+  } else {
+    heartbeatNote = "risposta illeggibile";
+  }
+}
+
+static void heartbeatIfDue() {
+  if (heartbeatEverDone &&
+      millis() - lastHeartbeatAt < BEACON_HEARTBEAT_INTERVAL_MS) {
+    return;
+  }
+  lastHeartbeatAt = millis();
+  heartbeatEverDone = true;
+  heartbeat();
+}
+
 static void printStatus() {
   char code[ROTATING_CODE_DIGITS + 1] = "------";
   if (clockLooksValid()) rotating_code_string(seedHex.c_str(), nowEpochMs(), code);
@@ -205,16 +354,28 @@ static void printStatus() {
   strftime(stamp, sizeof stamp, "%Y-%m-%dT%H:%M:%SZ", &utc);
 
   Serial.println("--- beacon-notaio ---");
+  Serial.printf("  device    %s\n", deviceIdText().c_str());
   Serial.printf("  uuid      %s\n", uuidText.c_str());
-  Serial.printf("  seme      %s…%s (%u char)\n", seedHex.substring(0, 8).c_str(),
-                seedHex.substring(seedHex.length() - 4).c_str(),
-                (unsigned)seedHex.length());
+  if (hasSeed()) {
+    Serial.printf("  seme      %s…%s (%u char, %s)\n",
+                  seedHex.substring(0, 8).c_str(),
+                  seedHex.substring(seedHex.length() - 4).c_str(),
+                  (unsigned)seedHex.length(),
+                  seedFromServer ? "dal server" : "da seriale");
+  } else {
+    Serial.println("  seme      nessuno: il beacon tace");
+  }
+  Serial.printf("  incarico  %s\n", assignedEvent.length() > 0
+                                        ? assignedEvent.c_str()
+                                        : "libero");
   Serial.printf("  ora       %s (%s)\n", stamp,
                 clockLooksValid() ? "sincronizzata" : "NON sincronizzata");
   Serial.printf("  wifi      %s\n", WiFi.status() == WL_CONNECTED
                                         ? WiFi.SSID().c_str()
                                         : "non connesso");
-  Serial.printf("  codice    %s\n", code);
+  Serial.printf("  api       %s\n", apiBase.c_str());
+  Serial.printf("  battito   %s\n", heartbeatNote.c_str());
+  Serial.printf("  codice    %s\n", hasSeed() ? code : "------");
   Serial.println("---------------------");
 }
 
@@ -233,8 +394,11 @@ static void handleCommand(String line) {
       return;
     }
     seedHex = rest;
+    seedFromServer = false; /* la mano dell'operatore vince sul server */
     prefs.putString("seed", seedHex);
-    Serial.println("[beacon] seme aggiornato");
+    prefs.putBool("srvseed", false);
+    Serial.println("[beacon] seme aggiornato (da seriale: un «libero» del "
+                   "server non lo tocca)");
     refreshAdvertising(true);
   } else if (verb == "uuid") {
     uint8_t parsed[16];
@@ -266,6 +430,16 @@ static void handleCommand(String line) {
     setClockFromEpochMs(epochMs);
     Serial.println("[beacon] orologio impostato a mano");
     refreshAdvertising(true);
+  } else if (verb == "api") {
+    if (!rest.startsWith("http")) {
+      Serial.println("[beacon] serve un URL http(s)://…");
+      return;
+    }
+    while (rest.endsWith("/")) rest.remove(rest.length() - 1);
+    apiBase = rest;
+    prefs.putString("api", apiBase);
+    heartbeatEverDone = false; /* battito subito sul nuovo indirizzo */
+    Serial.printf("[beacon] api → %s\n", apiBase.c_str());
   } else if (verb == "status") {
     printStatus();
   } else if (verb == "reset") {
@@ -275,7 +449,7 @@ static void handleCommand(String line) {
     ESP.restart();
   } else {
     Serial.println("comandi: seed <hex> | uuid <uuid> | wifi <ssid> <pass> | "
-                   "time <epoch_ms> | status | reset");
+                   "api <url> | time <epoch_ms> | status | reset");
   }
 }
 
@@ -317,6 +491,7 @@ void loop() {
     }
   }
 
+  heartbeatIfDue();
   refreshAdvertising(false);
   delay(200);
 }
