@@ -20,7 +20,7 @@ dashboard con la loro etichetta.
 - **La demo in 60 secondi** (video, per chi ha fretta): https://youtu.be/eT49_7OqGmY
 - **La demo integrale commentata** (12 minuti, tre test dal vivo: emette il
   telefono dell'host, poi il beacon fisso ESP32, poi un Android):
-  https://youtu.be/SztWP4F3Bho
+  https://youtu.be/P7UUUAOYYxA
 - **Demo live** (funziona da telefono e da laptop, niente da installare): https://attendee-arrival-web.vercel.app
 - **API** (la cucitura di verifica, in produzione su Vercel + Postgres): https://attendee-arrival-api.vercel.app/health
 - **Sandbox d'attacco**: si apre dalla console dell'evento che crei, o direttamente da `…/attacker/<id-evento>`
