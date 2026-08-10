@@ -4,6 +4,23 @@
 
 Business case WeRoad, risposta di Emanuele Puccetti, agosto 2026.
 
+**In sintesi.** Oggi il check-in è una dichiarazione, e una dichiarazione si
+falsifica dal divano. La mossa: al venue c'è un emettitore (il telefono
+dell'host, o un beacon fisso da pochi euro) che trasmette un codice segreto
+nuovo ogni trenta secondi, via radio e come QR; averlo ricevuto è la prova di
+esserci stati, in quel minuto, e il GPS resta solo la sveglia. Ogni check-in
+porta scritto chi lo conferma (macchina, umano, entrambi, nessuno) e quanto è
+solido: niente punteggi opachi. E non è una proposta: è costruito e deployato.
+API e console web in produzione, app nativa provata su iPhone e Android fisici,
+beacon ESP32 vero con firmware C, **95 test** in tutto (23 sul modello di
+fiducia, 17 end-to-end sull'API, 50 sull'app, 5 di parità fra C e TypeScript).
+Le quattro frodi del brief si lanciano dal vivo dalla sandbox e atterrano in
+dashboard con la loro etichetta.
+
+- **La demo in video**: 60 secondi montati per chi ha fretta, e la versione
+  integrale commentata (12 minuti, tre test dal vivo: emette il telefono
+  dell'host, poi il beacon fisso ESP32, poi un Android). Consegnati insieme a
+  questo documento
 - **Demo live** (funziona da telefono e da laptop, niente da installare): https://attendee-arrival-web.vercel.app
 - **API** (la cucitura di verifica, in produzione su Vercel + Postgres): https://attendee-arrival-api.vercel.app/health
 - **Sandbox d'attacco**: si apre dalla console dell'evento che crei, o direttamente da `…/attacker/<id-evento>`
@@ -11,13 +28,21 @@ Business case WeRoad, risposta di Emanuele Puccetti, agosto 2026.
   nello stack di WeMeet (NestJS, Nuxt/Vue, core condiviso, app Expo/React
   Native) più il firmware C del beacon ESP32, con test di parità fra i due
 
-**Come leggere.** In due minuti: la tabella di tracciabilità (sezione 1) e il meccanismo (sezione 3).
-In dieci: aggiungi l'anti-frode (sezione 6) e apri la demo mentre lo leggi. In mezz'ora:
-il reality check (sezione 9) è la parte che non troveresti in una presentazione.
+**Come leggere, coi tempi onesti.** Sotto ogni titolo c'è una riga in corsivo
+con l'esito della sezione: chi scorre solo quelle ha l'arco intero in un minuto.
+
+| Hai | Percorso |
+|---|---|
+| 1 minuto | Il video da 60 secondi |
+| 3 minuti | La sintesi qui sopra e la tabella di tracciabilità (sezione 1) |
+| 10 minuti | Aggiungi il meccanismo (sezione 3) e l'anti-frode (sezione 6), con la demo aperta accanto |
+| 30 minuti | Tutto: il reality check (sezione 9) è la parte che non troveresti in una presentazione |
 
 ---
 
 ## 1. Tracciabilità: cosa chiede il brief, dove sta la risposta
+
+*I tre requisiti del brief ci sono tutti; il ribaltamento che ferma i check-in falsi è uno: il QR promosso da fallback a trasporto della prova.*
 
 | Il brief chiede | La risposta | Dove provarlo |
 |---|---|---|
@@ -38,6 +63,8 @@ risposta al non-negoziabile, e il resto del documento spiega perché.
 ---
 
 ## 2. Il problema: cosa vuol dire «più difficile da falsificare»
+
+*Il GPS è una dichiarazione del device, e il device è dell'attendee: la prova deve nascere al venue, non sul telefono.*
 
 Oggi il check-in è un tap sull'onore. Chi tappa dichiara: *«sono qui»*. Il
 sistema registra la dichiarazione e la chiama presenza.
@@ -73,6 +100,8 @@ il quanto.)
 ---
 
 ## 3. Il meccanismo: un notaio al venue, un codice che ruota
+
+*Un emettitore al venue trasmette un codice imprevedibile che cambia ogni trenta secondi: averlo ricevuto dimostra la presenza, in quel minuto, via radio o via QR.*
 
 ### 3.1 Il beacon-notaio
 
@@ -165,6 +194,8 @@ Il GPS compare una volta sola, e come innesco. Non entra mai nel giudizio.
 
 ## 4. L'etichetta: due assi, nessun punteggio
 
+*Ogni check-in dichiara chi lo conferma e quanto è solido; ogni uso più prezioso richiede un testimone in più, mai un punteggio più alto.*
+
 Un «trust score» da 0 a 100 sembra rigoroso e non lo è: comprime informazioni
 diverse in un numero che nessuno sa più interpretare, e quando sbaglia non si
 riesce a spiegare perché. Qui ogni check-in porta due etichette **ortogonali**.
@@ -239,6 +270,8 @@ più, mai un punteggio più alto.**
 
 ## 5. Cosa vedono le persone
 
+*Con l'app l'attendee non fa niente; all'host restano l'accoglienza e un bottone per le eccezioni.*
+
 ### L'attendee
 
 1. Si avvicina al venue. L'ingresso nel geofence sveglia l'app in silenzio;
@@ -272,6 +305,8 @@ compilare.
 ---
 
 ## 6. Anti-frode: le quattro frodi del brief, eseguibili dal vivo
+
+*Lo screenshot muore con la finestra; comprare una serata intera costa un complice presente fino alla fine, e la frode residua resta visibile nel dato.*
 
 Ogni attacco qui sotto è **un bottone nella sandbox**. Parte davvero, colpisce
 davvero l'API di produzione, e l'esito atterra sulla dashboard dell'host con la
@@ -405,6 +440,8 @@ che otteneva prima di sforzarsi.
 
 ## 7. La notifica, e cosa succede quando viene ignorata
 
+*La conferma si chiede sulla porta, non a 150 metri; e ignorarla non rompe niente: il flusso degrada su quattro gradini previsti.*
+
 ### 7.1 Cosa fa davvero la notifica
 
 L'ingresso nel geofence sveglia l'app **in silenzio**: la conferma one-tap parte
@@ -448,6 +485,8 @@ serata va, e ognuno ha una risposta prevista.
 ---
 
 ## 8. Edge case
+
+*Un seme per evento, un borsellino che aspetta la rete, e un rifiuto deliberato: il check-in di gruppo delegato è una frode con le buone maniere.*
 
 ### 8.1 Eventi back-to-back nello stesso venue
 
@@ -510,6 +549,8 @@ crittografica di «erano insieme», al posto della parola di uno solo.
 ---
 
 ## 9. Reality check
+
+*I limiti veri, detti per primi: la permanenza è un limite inferiore osservato, il telefono non è la persona, la porta umana resta aperta e visibile.*
 
 La parte che di solito non si scrive. Un valutatore tecnico competente cerca
 questi punti: dichiararli per primi vale più che lasciarli trovare.
@@ -598,10 +639,12 @@ non ripensamenti.
 
 ## 10. Cosa è costruito davvero, e come si innesta
 
+*Non slide: core condiviso, API, web, app nativa e firmware, deployati, con 95 test e la parità C/TypeScript verificata.*
+
 Non è un mockup: è codice funzionante nello **stack di WeRoad**, deployato.
 
 **`packages/core`**: il cuore, condiviso da tutti i lati: derivazione del Codice
-Rotante e valutazione delle consegne. **13 test** che sono la specifica eseguibile
+Rotante e valutazione delle consegne. **23 test** che sono la specifica eseguibile
 del modello di fiducia (codice valido, replay, skew, back-to-back, offline dentro e
 fuori finestra, dwell, tocca-e-fuggi, GPS-solo, testimonianza umana, tap).
 
@@ -612,7 +655,7 @@ confirmationTap?}`, e restituisce il check-in etichettato;
 `POST /events/:id/attestations` riceve ciò che l'host afferma di aver visto.
 Non entrano dalla stessa porta perché nessun borsellino deve potersi
 accreditare da solo la parola di qualcun altro. Tutta l'intelligenza di fiducia
-vive dietro quelle porte. **7 test e2e** black-box
+vive dietro quelle porte. **17 test e2e** black-box
 sull'HTTP. Persistenza su Postgres (Supabase). Il modulo è **sollevabile e
 innestabile nel backend WeRoad così com'è**.
 
@@ -629,7 +672,7 @@ sveglia l'app: non può ruotare), codice nei campi *major*/*minor* con una
 divisione decimale scelta apposta perché uno scanner BLE generico mostri
 `major 12 / minor 3456` e tu legga **123456** senza convertire niente, così il
 canale radio si verifica con nRF Connect e il confronto con il QR della console è
-a occhio nudo. La derivazione è C puro senza dipendenze crittografiche, e **4 test
+a occhio nudo. La derivazione è C puro senza dipendenze crittografiche, e **5 test
 di parità** verificano che TypeScript e C producano lo stesso codice sugli stessi
 input, con gli stessi confini di finestra. Il seme si provisiona a caldo da
 seriale: non serve riflashare fra un evento e l'altro.
@@ -662,6 +705,8 @@ framework da adottare.
 ---
 
 ## 11. Rollout
+
+*Tre fasi, ognuna utile da sola: si parte domattina senza hardware, e il server non cambia mai.*
 
 **Fase 0: nessun hardware (settimana 1).** L'host apre la console: il suo telefono
 è il notaio. Canale ottico via QR. Funziona da subito in tutte le città, senza
@@ -701,6 +746,8 @@ con il DPO; il modello le rende tutte praticabili senza toccare il meccanismo.
 ---
 
 ## 12. Evoluzioni
+
+*Pari che si testimoniano a vicenda, host-scan come piano mirato, biometria e UWB quando il valore in gioco li giustifica.*
 
 **Testimonianza tra pari.** I telefoni dei partecipanti si rilevano a vicenda via
 BLE e riportano gli incontri: le presenze si corroborano l'un l'altra. Rafforza i
