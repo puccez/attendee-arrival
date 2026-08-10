@@ -28,10 +28,14 @@ export const BEACON_LOST_AFTER_MS = 45_000;
 /**
  * Il paracadute del canale ottico: entrato nel cerchio GPS, quanto silenzio
  * radio aspettare prima di instradare sull'inserimento del codice a mano
- * (host in ritardo, Bluetooth spento, beacon guasto). Tre minuti: il tempo
- * di percorrere il raggio del cerchio e sedersi.
+ * (host in ritardo, Bluetooth spento, beacon guasto). Cinque minuti: il
+ * raggio si percorre in due, ma parcheggi, semafori e attese davanti alla
+ * porta si mangiano il resto — e il geofence può scattare prima del cerchio
+ * per errore GPS. Meglio tardi che presto: chi è dentro col beacon muto ha
+ * comunque l'app a un tap, chi sta ancora arrivando non va addestrato a
+ * ignorare le notifiche.
  */
-export const ARRIVAL_FALLBACK_DELAY_S = 180;
+export const ARRIVAL_FALLBACK_DELAY_S = 300;
 
 /** Ogni quanto tentare di svuotare il borsellino quando l'app è aperta. */
 export const FLUSH_INTERVAL_MS = 20_000;

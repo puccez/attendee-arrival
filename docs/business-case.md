@@ -416,8 +416,10 @@ esplicito («sì, sono qui»). Non porta peso probatorio, e questo la rende
 leggera per progetto.
 
 E se il beacon resta muto (host in ritardo, Bluetooth spento, beacon guasto),
-dopo tre minuti nel cerchio parte una notifica diversa, che non chiede nessuna
-conferma: «sei nei paraggi, quando entri inquadra il QR». Il cerchio GPS arma
+dopo cinque minuti nel cerchio parte una notifica diversa, che non chiede
+nessuna conferma: «sei nei paraggi, quando entri inquadra il QR». Cinque e non
+due: chi parcheggia o aspetta qualcuno davanti alla porta non va disturbato, e
+chi è dentro col beacon muto ha comunque l'app a un tap. Il cerchio GPS arma
 il paracadute, il canale radio lo disinnesca; anche qui, ogni canale fa solo il
 mestiere che sa dimostrare.
 
