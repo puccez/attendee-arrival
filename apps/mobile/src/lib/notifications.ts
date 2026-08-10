@@ -36,8 +36,45 @@ export async function presentArrival(
 }
 
 /**
- * Il tap sulla notifica. Ritorna l'evento a cui si riferisce, così l'app
- * può registrare il segnale nel borsellino e consegnarlo.
+ * Il paracadute ottico, programmato all'ingresso nel cerchio GPS: parte solo
+ * se nessun codice arriva via radio entro il ritardo (lib/arrival decide
+ * quando armarlo e quando disinnescarlo). Non chiede nessuna conferma:
+ * instrada sull'inserimento del codice a mano. Ritorna l'id con cui
+ * cancellarla, null se le notifiche sono negate.
+ */
+export async function scheduleOpticalFallback(
+  eventId: string,
+  eventName: string,
+  delaySeconds: number,
+): Promise<string | null> {
+  try {
+    return await Notifications.scheduleNotificationAsync({
+      content: {
+        title: `Sei nei paraggi di ${eventName}`,
+        body: "Il beacon non si sente ancora: quando entri, inserisci il codice del coordinatore.",
+        data: { eventId },
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds: delaySeconds,
+        repeats: false,
+      },
+    });
+  } catch {
+    return null; // permessi negati: il canale ottico resta, aprendo l'app
+  }
+}
+
+export async function cancelOpticalFallback(id: string): Promise<void> {
+  await Notifications.cancelScheduledNotificationAsync(id).catch(() => {});
+}
+
+/**
+ * Il tap sulla notifica di conferma. Ritorna l'evento a cui si riferisce,
+ * così l'app può registrare il segnale nel borsellino e consegnarlo.
+ *
+ * Solo la notifica di conferma: il tap sul paracadute ottico apre l'app e
+ * basta — toccare un «sei nei paraggi» non dichiara nessuna presenza.
  */
 export function onArrivalTapped(
   handler: (eventId: string) => void,
@@ -45,7 +82,8 @@ export function onArrivalTapped(
   return Notifications.addNotificationResponseReceivedListener((response) => {
     const data = response.notification.request.content.data as {
       eventId?: string;
+      confirmationTap?: boolean;
     };
-    if (data?.eventId) handler(data.eventId);
+    if (data?.eventId && data.confirmationTap) handler(data.eventId);
   });
 }

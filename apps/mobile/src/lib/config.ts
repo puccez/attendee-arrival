@@ -25,6 +25,14 @@ export const BEACON_UUID =
  */
 export const BEACON_LOST_AFTER_MS = 45_000;
 
+/**
+ * Il paracadute del canale ottico: entrato nel cerchio GPS, quanto silenzio
+ * radio aspettare prima di instradare sull'inserimento del codice a mano
+ * (host in ritardo, Bluetooth spento, beacon guasto). Tre minuti: il tempo
+ * di percorrere il raggio del cerchio e sedersi.
+ */
+export const ARRIVAL_FALLBACK_DELAY_S = 180;
+
 /** Ogni quanto tentare di svuotare il borsellino quando l'app è aperta. */
 export const FLUSH_INTERVAL_MS = 20_000;
 

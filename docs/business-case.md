@@ -151,7 +151,7 @@ sequenceDiagram
         B->>B: codice = HMAC-SHA256 del seme<br/>sulla finestra corrente
         B-->>A: canale radio BLE · canale ottico QR
     end
-    Note over A: ingresso nel geofence GPS:<br/>sveglia l'app, manda la notifica one-tap
+    Note over A: ingresso nel geofence GPS:<br/>sveglia l'app in silenzio, apre la caccia<br/>(la notifica parte al contatto col beacon)
     A->>A: borsellino locale · funziona offline
     A->>S: consegna: codici raccolti e quando,<br/>più gps e tap come contesto
     S->>S: ricalcola i codici dal seme<br/>e confronta finestra per finestra
@@ -241,8 +241,9 @@ più, mai un punteggio più alto.**
 
 ### L'attendee
 
-1. Si avvicina al venue. L'app rileva l'ingresso nel geofence e manda **una
-   notifica: «Sei arrivata al WeMeet? Conferma»**. Un tap.
+1. Si avvicina al venue. L'ingresso nel geofence sveglia l'app in silenzio;
+   quando il telefono sente il beacon, cioè quando è arrivata davvero, arriva
+   **una notifica: «Sei arrivata al WeMeet? Conferma»**. Un tap.
 2. **Con l'app nativa non deve fare altro.** Il telefono, in tasca, sta già
    raccogliendo i Codici Rotanti via BLE. Il check-in si produce da solo e la
    permanenza cresce durante la serata.
@@ -406,9 +407,19 @@ che otteneva prima di sforzarsi.
 
 ### 7.1 Cosa fa davvero la notifica
 
-L'ingresso nel geofence sveglia l'app e manda la conferma one-tap. È **UX pura**:
-riduce l'attrito e dà all'attendee il controllo esplicito («sì, sono qui»). Non
-porta peso probatorio, e questo la rende leggera per progetto.
+L'ingresso nel geofence sveglia l'app **in silenzio**: la conferma one-tap parte
+al primo contatto col beacon, quando «sei arrivato» è vero per costruzione.
+Chiederla a 150 metri significherebbe chiedere una conferma di presenza a chi
+non è ancora presente, e insegnare alle persone a toccare per riflesso. La
+notifica è **UX pura**: riduce l'attrito e dà all'attendee il controllo
+esplicito («sì, sono qui»). Non porta peso probatorio, e questo la rende
+leggera per progetto.
+
+E se il beacon resta muto (host in ritardo, Bluetooth spento, beacon guasto),
+dopo tre minuti nel cerchio parte una notifica diversa, che non chiede nessuna
+conferma: «sei nei paraggi, quando entri inquadra il QR». Il cerchio GPS arma
+il paracadute, il canale radio lo disinnesca; anche qui, ogni canale fa solo il
+mestiere che sa dimostrare.
 
 ### 7.2 Se l'attendee la ignora, la cascata
 

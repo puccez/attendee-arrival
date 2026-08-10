@@ -31,11 +31,11 @@ Linguaggio condiviso del progetto. Solo termini di dominio, niente implementazio
 
 - **Dichiarazione di posizione** — segnale auto-riferito dal device (GPS/geofence). Economico, spoofabile da remoto. Avvia il flusso, non lo prova.
 - **Prova di prossimità** — dimostrazione di aver ricevuto il Codice Rotante del venue. Non spoofabile da remoto: richiede presenza fisica (o un complice sul posto che inoltra codici per tutta la serata).
-- **Arrivo** — l'ingresso rilevato dell'attendee nel geofence dell'evento; innesca la notifica one-tap. L'arrivo NON è un check-in: è l'invito a produrne uno.
+- **Arrivo** — l'ingresso rilevato dell'attendee nel geofence dell'evento; sveglia l'app in silenzio e apre la caccia ai codici. La notifica one-tap parte al primo contatto col beacon (quando «sei arrivato» è vero per costruzione); se il beacon resta muto, un paracadute temporizzato instrada sul canale ottico. L'arrivo NON è un check-in: è l'invito a produrne uno.
 
 ## Principi
 
-- **Non valutare dichiarazioni: fatti testimoniare gli arrivi.** Il GPS non è una prova ma UX (sveglia l'app, innesca la notifica one-tap).
+- **Non valutare dichiarazioni: fatti testimoniare gli arrivi.** Il GPS non è una prova ma UX (sveglia l'app; la conferma la chiede solo il canale che sa dimostrarla, il beacon).
 - **La porta della copertura non si chiude, si etichetta** — ogni design ha attendee non rilevabili automaticamente (telefono spento, permessi negati, niente app); i tentativi di chiuderla (biometria centralizzata, documento, niente fallback) costano più del male. Il fallback è il testimone umano, con la sua frode sociale dichiarata.
 - **Frode commisurata all'incentivo** — battere il sistema deve richiedere un complice fisicamente presente; per un evento gratuito è un costo sproporzionato. Scoraggiare, non rendere impossibile.
 - **Offline non è un caso d'errore** — la testimonianza può raggiungere il server da entrambi i lati (beacon-gateway o device), quando uno dei due ritrova la rete.

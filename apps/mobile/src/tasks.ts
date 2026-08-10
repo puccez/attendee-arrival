@@ -2,9 +2,13 @@ import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 
 import { WemeetBeacon } from "../modules/wemeet-beacon";
-import { shouldAnnounceArrival } from "./lib/arrival";
-import { BEACON_UUID } from "./lib/config";
-import { presentArrival } from "./lib/notifications";
+import { opticalFallbackMove, shouldAnnounceArrival } from "./lib/arrival";
+import { ARRIVAL_FALLBACK_DELAY_S, BEACON_UUID } from "./lib/config";
+import {
+  cancelOpticalFallback,
+  presentArrival,
+  scheduleOpticalFallback,
+} from "./lib/notifications";
 import { normalizeSighting } from "./beacon/normalize";
 import {
   closePresenceSession,
@@ -40,6 +44,8 @@ export const SETTING_EVENT_NAME = "event-name";
 export const SETTING_FENCE_STATE = "fence-state";
 /** La firma della region registrata: ri-registrare senza motivo rigioca lo stato iniziale. */
 export const SETTING_FENCE_REGION = "fence-region";
+/** L'id della notifica-paracadute programmata, "" se non ce n'è una armata. */
+export const SETTING_FALLBACK_ID = "fallback-notification";
 
 /**
  * Porta nel borsellino tutto ciò che il canale radio ha accumulato mentre
@@ -87,35 +93,53 @@ export async function drainRadioBacklog(eventId: string): Promise<number> {
  */
 let arrivalTurn: Promise<void> = Promise.resolve();
 
-export function handleArrival(options: {
+interface ArrivalOptions {
   gpsInside: boolean;
+  /** Annuncia la conferma: solo i risvegli del canale radio la portano. */
   notify: boolean;
+  /** Il giro nasce da un ingresso nel cerchio GPS: arma il paracadute ottico. */
+  scheduleFallback?: boolean;
+  /** Il giro nasce dall'uscita dal cerchio: chi se ne va non va invitato. */
+  gpsExit?: boolean;
   reason?: string;
-}): Promise<void> {
+}
+
+export function handleArrival(options: ArrivalOptions): Promise<void> {
   const turn = arrivalTurn.then(() => arrivalRound(options));
   arrivalTurn = turn.catch(() => {});
   return turn;
 }
 
-async function arrivalRound(options: {
-  gpsInside: boolean;
-  notify: boolean;
-  reason?: string;
-}): Promise<void> {
+/** Disinnesca la notifica-paracadute, se ce n'è una armata. */
+async function disarmOpticalFallback(
+  eventId: string,
+  reason: string,
+): Promise<void> {
+  const pending = await readSetting(SETTING_FALLBACK_ID);
+  if (!pending) return;
+  await cancelOpticalFallback(pending);
+  await writeSetting(SETTING_FALLBACK_ID, "");
+  await logDeviceEvent(eventId, "paracadute_disinnescato", reason);
+}
+
+async function arrivalRound(options: ArrivalOptions): Promise<void> {
   const eventId = await readSetting(SETTING_EVENT_ID);
   if (!eventId) return;
 
   await logDeviceEvent(eventId, "wake", options.reason ?? "sconosciuto");
-  await drainRadioBacklog(eventId);
+  const collected = await drainRadioBacklog(eventId);
   if (options.gpsInside) {
     await markArrival(eventId, { gpsInside: true });
   }
+
+  // Letto DOPO il drain: l'annuncio del receiver nativo vi si è già piegato.
+  const fenceState = await readSetting(SETTING_FENCE_STATE);
 
   if (options.notify) {
     // L'annuncio scatta sulla transizione, non sullo stato: iOS rigioca
     // «sei dentro» a ogni ripristino del task e a ogni riaccensione dello
     // schermo, e ogni replica annunciata è una notifica doppia.
-    if (shouldAnnounceArrival(await readSetting(SETTING_FENCE_STATE), eventId)) {
+    if (shouldAnnounceArrival(fenceState, eventId)) {
       const eventName = (await readSetting(SETTING_EVENT_NAME)) ?? "il WeMeet";
       await presentArrival(eventId, eventName).catch(() => {});
       await logDeviceEvent(eventId, "notifica_mostrata");
@@ -126,6 +150,40 @@ async function arrivalRound(options: {
     // Lo specchio nativo (Android): finché risulti dentro, anche il
     // receiver ad app chiusa tace.
     await WemeetBeacon?.syncArrivalStateAsync(true).catch(() => {});
+  }
+
+  // Il paracadute ottico: il cerchio GPS lo arma, il canale radio lo
+  // disinnesca (la mossa e i suoi perché stanno in lib/arrival).
+  const pendingFallback = await readSetting(SETTING_FALLBACK_ID);
+  const move = opticalFallbackMove({
+    announcing: options.notify,
+    fenceState,
+    eventId,
+    collectedNow: collected,
+    pendingFallback: Boolean(pendingFallback),
+    gpsEntry: options.scheduleFallback === true,
+    gpsExit: options.gpsExit === true,
+  });
+  if (move === "disinnesca") {
+    await disarmOpticalFallback(
+      eventId,
+      options.gpsExit ? "uscito dal cerchio GPS" : "il canale radio si è fatto sentire",
+    );
+  } else if (move === "arma") {
+    const eventName = (await readSetting(SETTING_EVENT_NAME)) ?? "il WeMeet";
+    const scheduled = await scheduleOpticalFallback(
+      eventId,
+      eventName,
+      ARRIVAL_FALLBACK_DELAY_S,
+    );
+    if (scheduled) {
+      await writeSetting(SETTING_FALLBACK_ID, scheduled);
+      await logDeviceEvent(
+        eventId,
+        "paracadute_armato",
+        `canale ottico fra ${ARRIVAL_FALLBACK_DELAY_S} secondi`,
+      );
+    }
   }
 
   const deviceId = await getDeviceId();
@@ -144,11 +202,14 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
     eventType?: Location.GeofencingEventType;
   };
   if (eventType === Location.GeofencingEventType.Enter) {
-    // L'Arrivo: dichiarazione di posizione, non prova. Innesca la notifica
-    // e apre la caccia ai codici — non produce nessun check-in da solo.
+    // L'Arrivo: dichiarazione di posizione, non prova — e nemmeno annuncio.
+    // Il cerchio sveglia in silenzio, apre la caccia ai codici e arma il
+    // paracadute ottico; «sei arrivato» lo dice solo il canale radio,
+    // quando il telefono sente davvero il codice.
     await handleArrival({
       gpsInside: true,
-      notify: true,
+      notify: false,
+      scheduleFallback: true,
       reason: "geofence_ingresso",
     });
   } else if (eventType === Location.GeofencingEventType.Exit) {
@@ -160,6 +221,7 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
     await handleArrival({
       gpsInside: false,
       notify: false,
+      gpsExit: true,
       reason: "geofence_uscita",
     });
   }
@@ -256,6 +318,12 @@ export async function stopGeofence(): Promise<void> {
   }
   // Fine dell'evento: fuori dalla region e senza firma, così il prossimo
   // evento registra da capo e riannuncia — receiver nativo compreso.
+  // E nessun paracadute superstite: un invito a un evento lasciato è spam.
+  const pending = await readSetting(SETTING_FALLBACK_ID);
+  if (pending) {
+    await cancelOpticalFallback(pending);
+    await writeSetting(SETTING_FALLBACK_ID, "");
+  }
   await writeSetting(SETTING_FENCE_STATE, "");
   await writeSetting(SETTING_FENCE_REGION, "");
   await WemeetBeacon?.syncArrivalStateAsync(false).catch(() => {});
