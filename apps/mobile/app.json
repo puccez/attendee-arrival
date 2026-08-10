@@ -6,7 +6,6 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
     "extra": {
       "apiBase": "https://attendee-arrival-api.vercel.app",
       "beaconUuid": "B6C60396-4B64-44D6-84E7-54909270550C"
@@ -18,6 +17,7 @@
         "NSLocationWhenInUseUsageDescription": "Serve a rilevare il tuo arrivo al WeMeet e a sentire il beacon del locale.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Serve a preparare il check-in quando entri nel locale, anche col telefono in tasca. La posizione non viene mai usata come prova.",
         "NSBluetoothAlwaysUsageDescription": "Serve ad ascoltare il codice del beacon del locale — è la prova che eri lì — e, in modalità notaio, a emetterlo dal telefono di chi conduce l'evento.",
+        "NSCameraUsageDescription": "Serve a inquadrare il QR mostrato da chi conduce l'evento: è il modo più rapido per confermare che ci sei.",
         "UIBackgroundModes": [
           "location",
           "bluetooth-central"
@@ -39,7 +39,11 @@
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.BLUETOOTH_ADVERTISE",
-        "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"
+        "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE",
+        "android.permission.CAMERA"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "plugins": [
@@ -50,6 +54,13 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Serve a preparare il check-in quando entri nel locale. La posizione non è mai una prova: sveglia l'app e basta.",
           "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Serve a inquadrare il QR mostrato da chi conduce l'evento: è il modo più rapido per confermare che ci sei.",
+          "microphonePermission": false
         }
       ],
       "./plugins/with-local-notifications-only"

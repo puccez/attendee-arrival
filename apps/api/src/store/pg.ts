@@ -128,6 +128,30 @@ export class PgEventsStore implements EventsStore {
       geofence: r.geofence ?? undefined,
     }));
   }
+
+  async delete(id: string): Promise<boolean> {
+    await this.db.ensureSchema();
+    // I vincoli dicono ON DELETE CASCADE e per uno schema nato oggi
+    // basterebbe il DELETE sull'evento; ma CREATE TABLE IF NOT EXISTS non
+    // ritocca mai una tabella nata da uno schema più vecchio (è la stessa
+    // trappola della colonna sessions, più su), quindi le righe collegate
+    // si cancellano per nome — e in transazione, perché un evento sparito
+    // a metà lascerebbe telemetria orfana che nessuno saprebbe più leggere.
+    const client = await this.db.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`DELETE FROM device_events WHERE event_id = $1`, [id]);
+      await client.query(`DELETE FROM check_ins WHERE event_id = $1`, [id]);
+      const res = await client.query(`DELETE FROM events WHERE id = $1`, [id]);
+      await client.query("COMMIT");
+      return (res.rowCount ?? 0) > 0;
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
 }
 
 export class PgTelemetryStore implements TelemetryStore {

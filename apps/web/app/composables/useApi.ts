@@ -4,6 +4,9 @@ export function useApi() {
     post: <T>(path: string, body: unknown) =>
       $fetch<T>(`${base}${path}`, { method: "POST", body }),
     get: <T>(path: string) => $fetch<T>(`${base}${path}`),
+    /** Le porte distruttive rispondono 204: non c'è corpo da tipizzare. */
+    del: (path: string) =>
+      $fetch<void>(`${base}${path}`, { method: "DELETE" }),
   };
 }
 

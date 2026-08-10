@@ -2,7 +2,9 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Inject,
   Param,
   Post,
@@ -101,6 +103,19 @@ export class CheckInController {
   async listEvents() {
     const events = await this.events.list();
     return events.map(({ seed: _seed, ...publicEvent }) => publicEvent);
+  }
+
+  /**
+   * La porta distruttiva: con l'evento se ne vanno consegne e telemetria —
+   * righe che senza il loro evento non racconterebbero più niente. Nel
+   * livello demo la credenziale è, come per il seme, il possesso dell'id
+   * (docs/business-case.md §9.2); in produzione questa porta è dell'host,
+   * ed è la prima a cui agganciare l'autenticazione.
+   */
+  @Delete("events/:eventId")
+  @HttpCode(204)
+  async deleteEvent(@Param("eventId") eventId: string): Promise<void> {
+    await this.events.delete(eventId);
   }
 
   /** Dettagli pubblici dell'evento: il seme NON esce mai da qui. */

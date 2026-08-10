@@ -39,8 +39,8 @@ export async function presentArrival(
  * Il paracadute ottico, programmato all'ingresso nel cerchio GPS: parte solo
  * se nessun codice arriva via radio entro il ritardo (lib/arrival decide
  * quando armarlo e quando disinnescarlo). Non chiede nessuna conferma:
- * instrada sull'inserimento del codice a mano. Ritorna l'id con cui
- * cancellarla, null se le notifiche sono negate.
+ * instrada sul canale ottico — inquadrare il QR, o il codice a mano.
+ * Ritorna l'id con cui cancellarla, null se le notifiche sono negate.
  */
 export async function scheduleOpticalFallback(
   eventId: string,
@@ -51,7 +51,7 @@ export async function scheduleOpticalFallback(
     return await Notifications.scheduleNotificationAsync({
       content: {
         title: `Sei nei paraggi di ${eventName}`,
-        body: "Il beacon non si sente ancora: quando entri, inserisci il codice del coordinatore.",
+        body: "Non ti abbiamo ancora sentito: quando entri, inquadra il QR di chi conduce l'evento.",
         data: { eventId },
       },
       trigger: {

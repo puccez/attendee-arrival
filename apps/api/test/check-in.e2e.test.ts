@@ -6,6 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { deriveRotatingCode } from "@attendee-arrival/core";
 import { AppModule } from "../src/app.module.js";
 import { CLOCK } from "../src/clock.js";
+import { resolveBacking } from "../src/store/lazy.js";
+import type { InMemoryTelemetryStore } from "../src/store/in-memory.js";
 
 // Black-box sulla cucitura HTTP (vedi docs/spec.md, Testing Decisions):
 // dati in ingresso → check-in etichettato in uscita. Il tempo è controllato.
@@ -332,6 +334,56 @@ describe("POST /events/:id/deliveries — la cucitura via HTTP", () => {
 
     const missing = await request(http).get("/events/non-esiste/seed");
     expect(missing.status).toBe(404);
+  });
+
+  it("cancellare un evento porta via anche le sue righe", async () => {
+    // Un evento con una consegna e un po' di telemetria: il DELETE deve
+    // portarsi via tutto, non lasciare orfani che nessuno saprà più leggere.
+    const event = await createEvent();
+    await request(http)
+      .post(`/events/${event.id}/deliveries`)
+      .send({ deviceId: "device-anna", codes: [] });
+    await request(http)
+      .post(`/events/${event.id}/telemetry`)
+      .send({
+        deviceId: "device-anna",
+        events: [{ at: "2026-08-07T19:40:00Z", kind: "wake" }],
+      });
+
+    // Prima di cancellare, le righe collegate esistono davvero: senza
+    // questo contraddittorio, i vuoti di dopo non proverebbero niente.
+    const dietro = resolveBacking();
+    expect(dietro.kind).toBe("memory"); // la suite gira senza POSTGRES_URL
+    const telemetria = dietro.telemetry as InMemoryTelemetryStore;
+    expect(await dietro.checkIns.list(event.id)).toHaveLength(1);
+    expect(
+      [...telemetria.events.keys()].filter((k) => k.startsWith(`${event.id}:`)),
+    ).toHaveLength(1);
+
+    const del = await request(http).delete(`/events/${event.id}`);
+    expect(del.status).toBe(204);
+
+    // L'evento non esiste più, e con lui ogni porta che ci si appoggiava.
+    const gone = await request(http).get(`/events/${event.id}`);
+    expect(gone.status).toBe(404);
+    const arrivi = await request(http).get(`/events/${event.id}/check-ins`);
+    expect(arrivi.status).toBe(404);
+
+    // E sotto le porte, gli store: i 404 qui sopra nascono dall'assenza
+    // dell'evento, quindi da soli non distinguerebbero una pulizia vera da
+    // una no-op. Si guarda direttamente dove le righe abitavano.
+    expect(await dietro.checkIns.list(event.id)).toEqual([]);
+    expect(
+      [...telemetria.events.keys()].filter((k) => k.startsWith(`${event.id}:`)),
+    ).toEqual([]);
+
+    // Cancellare due volte non è idempotente di proposito: la seconda è
+    // la cancellazione di qualcosa che non c'è, e si dice.
+    const ancora = await request(http).delete(`/events/${event.id}`);
+    expect(ancora.status).toBe(404);
+
+    const mai = await request(http).delete("/events/non-esiste");
+    expect(mai.status).toBe(404);
   });
 
   it("il seme non trapela da nessun'altra porta", async () => {

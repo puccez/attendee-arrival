@@ -1,8 +1,15 @@
+import {
+  CameraView,
+  useCameraPermissions,
+  type BarcodeScanningResult,
+} from "expo-camera";
 import * as Linking from "expo-linking";
+import * as Location from "expo-location";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -11,17 +18,29 @@ import {
   TextInput,
   View,
 } from "react-native";
+import QRCode from "react-native-qrcode-svg";
+import {
+  SafeAreaProvider,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 import { WemeetBeacon } from "./modules/wemeet-beacon";
 import { useBeaconChannel } from "./src/beacon/useBeaconChannel";
 import { useNotary, type NotaryHandle } from "./src/notary/useNotary";
 import {
+  createEvent,
+  fetchCheckIns,
   fetchCurrentCode,
   fetchEvent,
   fetchEvents,
   type ApiCheckIn,
   type ApiEvent,
 } from "./src/lib/api";
+import {
+  opticalPayload,
+  opticalVerdict,
+  shouldConsiderScan,
+} from "./src/lib/optical";
 import {
   BEACON_UUID,
   EVENT_RETRY_MS,
@@ -90,7 +109,22 @@ const T = {
   rFull: 999,
 };
 
+/**
+ * Gli inset di sistema arrivano dal provider, e servono soprattutto sotto:
+ * su Android i pulsanti di navigazione COPRONO il fondo dello schermo, e
+ * senza inset la barra d'azione ci finiva dietro. iOS andava bene per
+ * fortuna, non per merito — ora il margine lo detta il dispositivo, non un
+ * numero scelto guardando un solo telefono.
+ */
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <Root />
+    </SafeAreaProvider>
+  );
+}
+
+function Root() {
   const [eventId, setEventId] = useState<string | null>(null);
   const [event, setEvent] = useState<ApiEvent | null>(null);
   const [deviceId, setDeviceId] = useState("");
@@ -104,6 +138,7 @@ export default function App() {
   const [note, setNote] = useState<string | null>(null);
   const [view, setView] = useState<"attendee" | "notaio">("attendee");
 
+  const insets = useSafeAreaInsets();
   const beacon = useBeaconChannel(eventId);
   // Alla radice, non nella schermata: la rotazione del codice deve
   // sopravvivere alla navigazione (su Android emette a schermo spento).
@@ -243,12 +278,13 @@ export default function App() {
     setBusy(true);
     try {
       const report = await flush(deviceId);
+      // In parole, non in etichette: «borsellino» vive nel dietro le quinte.
       setNote(
         report.delivered > 0
-          ? `Consegnati ${report.delivered} elementi del borsellino.`
+          ? "Fatto: la tua presenza è appena salita."
           : report.retryLater > 0
-            ? "Niente rete: il borsellino aspetta e ritenta da solo."
-            : "Borsellino vuoto: nessun codice da consegnare.",
+            ? "Niente rete per ora: appena torna, sale tutto da solo."
+            : "Tutto già consegnato: non c'era niente in attesa.",
       );
       await refreshWallet();
     } finally {
@@ -285,6 +321,9 @@ export default function App() {
           setEventId(id.trim());
           await grantPermissions();
         }}
+        // Il picker se ne va appena si entra: quello che ha da dire ancora
+        // (es. «evento nato senza posizione») lo dice alla schermata dopo.
+        onNote={setNote}
       />
     );
   }
@@ -293,6 +332,7 @@ export default function App() {
     return (
       <NotaryScreen
         notary={notary}
+        eventId={eventId}
         eventName={event?.name ?? "il tuo evento"}
         onBack={() => setView("attendee")}
       />
@@ -324,13 +364,14 @@ export default function App() {
       : beacon.inRange
         ? {
             tone: T.warn,
-            titolo: "Il beacon ti sente",
-            sotto: "Resta pure qui: la presenza si raccoglie da sola.",
+            titolo: "Ti sentiamo qui vicino",
+            sotto: "Resta pure: la presenza si raccoglie da sola.",
           }
         : {
             tone: T.faint,
             titolo: "Non risulti ancora qui",
-            sotto: "Avvicinati al beacon, o inserisci il codice del coordinatore.",
+            sotto:
+              "Sei già sul posto? Inquadra il QR di chi conduce l'evento: due secondi e ci sei.",
           };
 
   const permessiMancanti = permissions && !(permissions.radio && permissions.wake);
@@ -338,7 +379,12 @@ export default function App() {
   return (
     <View style={styles.screen}>
       <StatusBar style="light" />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: 120 + insets.bottom },
+        ]}
+      >
         <Hero name={event?.name ?? "WeMeet"} />
 
         {/* La card che risale sopra la testata: la forma del dettaglio
@@ -388,15 +434,17 @@ export default function App() {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Serve un permesso</Text>
             <Text style={styles.cardSub}>
-              Senza, il telefono non può sentire il beacon da solo: resta il
-              codice a mano qui sotto.
+              Senza, il telefono non si accorge da solo che sei arrivato:
+              resta il QR qui sotto.
             </Text>
             <PillButton label="Concedi i permessi" onPress={grantPermissions} />
           </View>
         ) : null}
 
-        <ManualCode
+        <OpticalEntry
+          eventId={eventId}
           onSubmit={async (code) => {
+            // Fotocamera o dita, la strada è UNA: nel borsellino e su.
             await collectCode(eventId, code, new Date());
             await deliverNow();
           }}
@@ -426,8 +474,11 @@ export default function App() {
       </ScrollView>
 
       {/* La barra d'azione a pastiglia: il posto dell'azione principale,
-          e la conferma one-tap è la nostra. */}
-      <View style={styles.actionbar}>
+          e la conferma one-tap è la nostra. Il fondo lo decide l'inset:
+          sotto ci possono essere i pulsanti di navigazione di Android. */}
+      <View
+        style={[styles.actionbar, { bottom: Math.max(insets.bottom + 8, 24) }]}
+      >
         <Text style={styles.actionbarLabel}>
           {confermato ? "Ci sei ✓" : "Non ancora confermato"}
         </Text>
@@ -517,15 +568,53 @@ function PinGlyph() {
   );
 }
 
-function ManualCode({ onSubmit }: { onSubmit: (code: string) => Promise<void> }) {
+/**
+ * Il canale ottico, per come lo vive l'attendee: l'azione è UNA — inquadra
+ * il QR di chi conduce — e il campo a sei cifre resta sotto, discreto, per
+ * quando la fotocamera non può (o il QR è dall'altra parte della sala e le
+ * cifre te le dettano a voce). Le due strade convergono nello stesso
+ * `onSubmit`: da qui in poi il sistema non sa più chi delle due ha portato
+ * il codice, ed è giusto così.
+ */
+function OpticalEntry({
+  eventId,
+  onSubmit,
+}: {
+  eventId: string;
+  onSubmit: (code: string) => Promise<void>;
+}) {
   const [code, setCode] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
+  const [permission, requestPermission] = useCameraPermissions();
+
+  const openScanner = async () => {
+    // Il permesso si chiede al gesto, non all'avvio: chi non inquadrerà
+    // mai niente non deve vedere la richiesta.
+    if (!permission?.granted) {
+      const asked = await requestPermission();
+      if (!asked.granted) {
+        setHint(
+          "La fotocamera per noi resta spenta — nessun problema: il codice si scrive qui sotto.",
+        );
+        return;
+      }
+    }
+    setHint(null);
+    setScanning(true);
+  };
+
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>Il codice del coordinatore</Text>
+      <Text style={styles.cardTitle}>Inquadra e ci sei</Text>
       <Text style={styles.cardSub}>
-        Se la radio non arriva, il codice è lo stesso: leggilo dallo schermo di
-        chi conduce l'evento. Cambia ogni 30 secondi.
+        Chi conduce l'evento ha un QR sullo schermo: puntaci la fotocamera e
+        al resto pensiamo noi.
       </Text>
+      <PillButton label="Inquadra il QR" onPress={() => void openScanner()} />
+      {hint ? <Text style={styles.cardSub}>{hint}</Text> : null}
+
+      <Text style={styles.orDivider}>oppure inserisci il codice a mano</Text>
       <TextInput
         style={styles.codeInput}
         value={code}
@@ -536,7 +625,7 @@ function ManualCode({ onSubmit }: { onSubmit: (code: string) => Promise<void> })
         maxLength={6}
       />
       <PillButton
-        label="Aggiungi al borsellino"
+        label="Conferma"
         tone="soft"
         onPress={() => {
           if (code.length === 6) {
@@ -545,7 +634,88 @@ function ManualCode({ onSubmit }: { onSubmit: (code: string) => Promise<void> })
           }
         }}
       />
+
+      {scanning ? (
+        <ScannerSheet
+          eventId={eventId}
+          onClose={() => setScanning(false)}
+          onFound={(found) => {
+            setScanning(false);
+            // Il feedback positivo sta QUI, vicino al gesto: la consegna
+            // vera dirà poi la sua col banner di stato.
+            setHint("Preso ✓ — il QR è quello giusto, da qui facciamo noi.");
+            void onSubmit(found);
+          }}
+        />
+      ) : null}
     </View>
+  );
+}
+
+/**
+ * La fotocamera a schermo pieno. Il giudizio sul QR non abita qui: sta in
+ * lib/optical, puro e testato — qui si tengono solo i due riflessi che una
+ * fotocamera impone: lo stesso frame consegnato a raffica non va rigiocato,
+ * e dopo il primo codice buono non se ne accetta un secondo.
+ */
+function ScannerSheet({
+  eventId,
+  onFound,
+  onClose,
+}: {
+  eventId: string;
+  onFound: (code: string) => void;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [warn, setWarn] = useState<string | null>(null);
+  const done = useRef(false);
+  const lastScan = useRef<{ data: string; at: number } | null>(null);
+
+  const onScanned = ({ data }: BarcodeScanningResult) => {
+    if (done.current) return;
+    const now = Date.now();
+    if (!shouldConsiderScan(lastScan.current, data, now)) return;
+    lastScan.current = { data, at: now };
+
+    const verdict = opticalVerdict(data, eventId);
+    if (verdict.kind === "codice") {
+      done.current = true;
+      onFound(verdict.code);
+      return;
+    }
+    setWarn(
+      verdict.kind === "altro-evento"
+        ? "Questo QR è di un altro evento: chiedi quello giusto a chi conduce."
+        : "Questo non è il QR dell'evento: cerca quello sullo schermo di chi conduce.",
+    );
+  };
+
+  return (
+    <Modal animationType="slide" onRequestClose={onClose}>
+      <View style={styles.scanner}>
+        <CameraView
+          style={StyleSheet.absoluteFill}
+          facing="back"
+          barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+          onBarcodeScanned={onScanned}
+        />
+        <Pressable
+          onPress={onClose}
+          style={[styles.scannerClose, { top: insets.top + 12 }]}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Text style={styles.scannerCloseText}>Chiudi</Text>
+        </Pressable>
+        <View
+          style={[styles.scannerFoot, { paddingBottom: insets.bottom + 24 }]}
+        >
+          <Text style={styles.scannerHint}>
+            {warn ?? "Inquadra il QR sullo schermo di chi conduce l'evento."}
+          </Text>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -675,20 +845,50 @@ function Backstage({
 /**
  * La superficie dell'host: il telefono che gioca il ruolo del notaio.
  *
- * Le due promesse della spec, entrambe a schermo: lo stato dell'emissione
- * in evidenza (un notaio morto è rumoroso, non silenzioso) e il limite di
- * piattaforma dichiarato invece che scoperto a fine serata — su iPhone si
- * emette a schermata aperta, su Android anche in tasca.
+ * In alto il QR — il canale ottico, derivato QUI dal seme che l'incarico
+ * custodisce in locale: la rete del locale può morire, lo schermo no. Il
+ * payload è identico a quello della console web, così l'app di chi
+ * inquadra non distingue chi l'ha disegnato. Sotto, gli arrivi in tempo
+ * reale: è il telefono appoggiato sul tavolo di chi conduce, e la lista si
+ * aggiorna da sola finché la schermata resta aperta.
+ *
+ * Restano a schermo lo stato dell'emissione (un notaio morto è rumoroso,
+ * non silenzioso) e il limite di piattaforma — su iPhone si emette a
+ * schermata aperta, su Android anche in tasca. Le etichette tecniche
+ * stanno nel dietro le quinte, come sulla schermata dell'attendee.
  */
 function NotaryScreen({
   notary,
+  eventId,
   eventName,
   onBack,
 }: {
   notary: NotaryHandle;
+  eventId: string;
   eventName: string;
   onBack: () => void;
 }) {
+  const insets = useSafeAreaInsets();
+  const [arrivals, setArrivals] = useState<ApiCheckIn[] | null>(null);
+
+  // Il polling vive nella schermata apposta: chiuderla lo ferma. Un giro
+  // fallito non svuota la lista — si resta sull'ultima fotografia buona.
+  useEffect(() => {
+    let alive = true;
+    const tick = () =>
+      fetchCheckIns(eventId)
+        .then((list) => {
+          if (alive) setArrivals(list);
+        })
+        .catch(() => {});
+    tick();
+    const timer = setInterval(tick, 5_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [eventId]);
+
   const emissione = notary.active
     ? notary.emitting
       ? {
@@ -713,19 +913,36 @@ function NotaryScreen({
   return (
     <View style={styles.screen}>
       <StatusBar style="light" />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: 120 + insets.bottom },
+        ]}
+      >
         <Hero name={eventName} pill={emissione.pill} onBack={onBack} />
 
-        {/* La card che risale sopra la testata, come il loro dettaglio
-            evento: righe tessera + titolo + sottotitolo. */}
-        <View style={[styles.card, styles.sheet]}>
-          <Text style={styles.notaryCode}>
-            {notary.active && notary.code ? notary.code : "——————"}
-          </Text>
-          <Text style={[styles.cardSub, styles.notaryCodeSub]}>
-            Il Codice Rotante in onda adesso · cambia ogni 30 secondi, insieme
-            alla console
-          </Text>
+        {/* La card che risale sopra la testata: il QR da far inquadrare,
+            con le cifre sotto per chi se le fa dettare. */}
+        <View style={[styles.card, styles.sheet, styles.qrCard]}>
+          {notary.active && notary.code ? (
+            <>
+              <QRCode
+                value={opticalPayload(eventId, notary.code)}
+                size={208}
+                color={T.ink}
+                backgroundColor={T.surface}
+              />
+              <Text style={styles.qrDigits}>{notary.code}</Text>
+              <Text style={[styles.cardSub, styles.qrSub]}>
+                Fallo inquadrare a chi arriva — o fai copiare le cifre. Si
+                rinnova da solo ogni mezzo minuto.
+              </Text>
+            </>
+          ) : (
+            <Text style={[styles.cardSub, styles.qrSub]}>
+              Il QR da far inquadrare compare qui appena inizi a emettere.
+            </Text>
+          )}
         </View>
 
         <View style={styles.card}>
@@ -749,18 +966,39 @@ function NotaryScreen({
           />
         </View>
 
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Chi è arrivato</Text>
+          {arrivals === null ? (
+            <ActivityIndicator color={T.brand} />
+          ) : arrivals.length === 0 ? (
+            <Text style={styles.cardSub}>
+              Ancora nessuno: i primi compaiono qui da soli, senza ricaricare.
+            </Text>
+          ) : (
+            [...arrivals]
+              .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+              .map((arrival) => (
+                <ArrivalRow key={arrival.deviceId} arrival={arrival} />
+              ))
+          )}
+        </View>
+
         {notary.error ? <Text style={styles.note}>{notary.error}</Text> : null}
         {notary.busy ? <ActivityIndicator color={T.brand} /> : null}
 
+        <NotaryBackstage notary={notary} />
+
         <Text style={styles.footer}>
-          Il notaio è un ruolo, non un oggetto: stasera lo gioca questo
-          telefono. Fermarlo cancella il seme.
+          Condurre è un ruolo, non un oggetto: stasera lo gioca questo
+          telefono. Fermarlo spegne il codice e lo dimentica.
         </Text>
       </ScrollView>
 
       {/* La stessa barra a pastiglia del resto dell'app: etichetta a
           sinistra, azione corallo a destra — il loro «Partecipa». */}
-      <View style={styles.actionbar}>
+      <View
+        style={[styles.actionbar, { bottom: Math.max(insets.bottom + 8, 24) }]}
+      >
         <Text style={styles.actionbarLabel}>
           {notary.active ? (notary.emitting ? "In onda ✓" : "Radio ferma") : "Non stai emettendo"}
         </Text>
@@ -775,6 +1013,97 @@ function NotaryScreen({
           </Text>
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+/**
+ * Una riga d'arrivo, in parole: la console web mostra le etichette
+ * (provenienza, qualità), qui si legge una frase — chi conduce è in piedi
+ * con un telefono in mano, non seduto a interpretare una tabella. I minuti
+ * sono la copertura, cioè un limite inferiore: da qui l'«almeno».
+ */
+function ArrivalRow({ arrival }: { arrival: ApiCheckIn }) {
+  const name = arrival.attendeeName?.trim() || "Senza nome";
+  // Primo code point, non primo char: un nome che inizia con un'emoji
+  // (la sandbox li usa) con charAt mostrerebbe mezzo surrogato.
+  const initial = ([...name][0] ?? "·").toUpperCase();
+  const minutes = arrival.quality.coverageMinutes;
+  const presenza =
+    minutes >= 1
+      ? `qui da almeno ${minutes} minut${minutes === 1 ? "o" : "i"}`
+      : "appena arrivato";
+  const conferma =
+    arrival.provenance === "machine+human"
+      ? "confermato dal suo telefono e da te"
+      : arrival.provenance === "machine"
+        ? "lo conferma il suo telefono"
+        : arrival.provenance === "human"
+          ? "confermato da te"
+          : "ancora nessuna conferma";
+  return (
+    <View style={styles.infoRow}>
+      <View style={styles.tileBox}>
+        <Text style={styles.tileGlyph}>{initial}</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.infoStrong}>{name}</Text>
+        <Text style={styles.infoSub}>
+          {presenza} · {conferma}
+        </Text>
+      </View>
+      <View
+        style={[styles.arrivalPill, arrival.accredited && styles.arrivalPillOn]}
+      >
+        <Text
+          style={[
+            styles.arrivalPillText,
+            arrival.accredited && styles.arrivalPillTextOn,
+          ]}
+        >
+          {arrival.accredited ? "C'è" : "Quasi"}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Il retroscena del notaio: le etichette vere dell'emissione, chiuse per
+ * default come sull'altra schermata — chi guarda la demo le apre, chi
+ * conduce l'aperitivo no.
+ */
+function NotaryBackstage({ notary }: { notary: NotaryHandle }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={styles.backstage}>
+      <Pressable onPress={() => setOpen((v) => !v)} style={styles.backstageHead}>
+        <Text style={styles.backstageSummary}>
+          {open ? "▾" : "▸"} Dietro le quinte (demo)
+        </Text>
+      </Pressable>
+      {open ? (
+        <View style={{ gap: 6 }}>
+          <KV k="codice rotante in onda" v={notary.code ?? "——————"} />
+          <KV
+            k="radio"
+            v={
+              notary.active
+                ? notary.emitting
+                  ? "annuncio in onda"
+                  : "ferma"
+                : "incarico non attivo"
+            }
+          />
+          {notary.bluetooth ? <KV k="bluetooth" v={notary.bluetooth} /> : null}
+          <KV
+            k="modulo radio"
+            v={notary.available ? "presente" : "assente (serve una dev build)"}
+          />
+          <KV k="rotazione" v="ogni 30 s, al confine di finestra, offline" />
+          <KV k="payload del qr" v="{e, c} — identico alla console web" />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -835,13 +1164,68 @@ function PillButton({
 
 function EventPicker({
   onPick,
+  onNote,
 }: {
   onPick: (eventId: string, name: string) => Promise<void>;
+  /** L'ultimo messaggio del picker, recapitato alla schermata che segue. */
+  onNote: (message: string) => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [events, setEvents] = useState<ApiEvent[] | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [id, setId] = useState("");
   const [name, setName] = useState("");
+  const [newEventName, setNewEventName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  /**
+   * La nascita sul posto: l'evento parte adesso, dura sei ore, e nasce
+   * dove sei — il cerchio è quello che poi sveglierà i telefoni di chi
+   * arriva. Se la posizione non c'è (permesso negato, GPS muto) si crea
+   * lo stesso, senza cerchio: lo si dice con garbo alla schermata dopo,
+   * perché questa se ne sta andando.
+   */
+  const createAndEnter = async () => {
+    const trimmed = newEventName.trim();
+    if (!trimmed || creating) return;
+    setCreating(true);
+    setCreateError(null);
+
+    const geofence = await currentGeofence();
+    const now = new Date();
+    let created: ApiEvent;
+    try {
+      created = await createEvent({
+        name: trimmed,
+        startsAt: now.toISOString(),
+        endsAt: new Date(now.getTime() + 6 * 60 * 60 * 1000).toISOString(),
+        ...(geofence ? { geofence } : {}),
+      });
+    } catch {
+      setCreateError(
+        "Non siamo riusciti a creare l'evento: controlla la rete e riprova.",
+      );
+      setCreating(false);
+      return;
+    }
+    if (!geofence) {
+      onNote(
+        "L'evento è nato senza sapere dove si trova: funziona tutto lo stesso, solo che l'app non potrà accorgersi da sola di chi arriva.",
+      );
+    }
+    // Lo stesso flusso della scelta: chi crea entra come tutti gli altri.
+    // Se l'ingresso inciampa (raro: le scritture sono locali) lo spinner
+    // non deve restare appeso su un evento che ormai esiste.
+    try {
+      await onPick(created.id, name);
+    } catch {
+      setCreating(false);
+      setCreateError(
+        "L'evento è nato ma non siamo riusciti a entrarci: toccalo nella lista qui sopra.",
+      );
+    }
+  };
 
   // La lista degli eventi recenti, da toccare: l'id a mano resta come
   // riserva per quando la rete non c'è o l'evento non è in lista. Un
@@ -879,7 +1263,10 @@ function EventPicker({
           tocco su un evento deve SCEGLIERLO, non limitarsi a chiudere la
           tastiera — senza questo, il primo tap della lista muore sempre lì. */}
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: 40 + insets.bottom },
+        ]}
         keyboardShouldPersistTaps="handled"
       >
         <Hero name="A quale evento vai?" />
@@ -923,6 +1310,28 @@ function EventPicker({
         </View>
 
         <View style={styles.card}>
+          <Text style={styles.cardTitle}>Il tuo evento non c'è?</Text>
+          <Text style={styles.cardSub}>
+            Crealo: parte adesso, dura sei ore, e nasce dove sei tu.
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={newEventName}
+            onChangeText={setNewEventName}
+            placeholder="il nome dell'evento"
+            placeholderTextColor={T.faint}
+          />
+          {createError ? (
+            <Text style={styles.cardSub}>{createError}</Text>
+          ) : null}
+          {creating ? (
+            <ActivityIndicator color={T.brand} />
+          ) : (
+            <PillButton label="Crea ed entra" onPress={() => void createAndEnter()} />
+          )}
+        </View>
+
+        <View style={styles.card}>
           <Text style={styles.cardSub}>
             Oppure incolla l'id dell'evento (te lo dà chi conduce).
           </Text>
@@ -945,6 +1354,45 @@ function EventPicker({
       </ScrollView>
     </View>
   );
+}
+
+/**
+ * Il cerchio dell'evento appena creato: la posizione di chi lo crea, ora.
+ *
+ * Il permesso si chiede qui, al gesto di creare — non all'avvio. Un GPS
+ * indoor può metterci un'eternità: dopo dieci secondi ci si accontenta
+ * dell'ultima posizione nota, e se non c'è nemmeno quella l'evento nasce
+ * senza cerchio (il chiamante lo racconta). 150 metri di raggio: largo
+ * abbastanza da perdonare l'errore GPS di un interno — e comunque sotto i
+ * 100 il registro del geofence non scende (tasks.ts).
+ */
+async function currentGeofence(): Promise<{
+  lat: number;
+  lng: number;
+  radiusM: number;
+} | null> {
+  try {
+    let { granted } = await Location.getForegroundPermissionsAsync();
+    if (!granted) {
+      granted = (await Location.requestForegroundPermissionsAsync()).granted;
+    }
+    if (!granted) return null;
+    const position =
+      (await Promise.race([
+        Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000)),
+      ])) ?? (await Location.getLastKnownPositionAsync());
+    if (!position) return null;
+    return {
+      lat: position.coords.latitude,
+      lng: position.coords.longitude,
+      radiusM: 150,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /* --------------------------------------------------------------- date */
@@ -1090,18 +1538,33 @@ const styles = StyleSheet.create({
   cardTitle: { color: T.inkStrong, fontSize: 17, fontWeight: "600" },
   cardSub: { color: T.muted, fontSize: 15, lineHeight: 21 },
 
-  /* Il codice del notaio: grande come sulla console, si legge dall'altra
-     parte del tavolo. */
-  notaryCode: {
+  /* La card del QR del notaio: il canale ottico, centrato. Le cifre sotto
+     restano leggibili dall'altra parte del tavolo, per chi se le fa
+     dettare invece di inquadrare. */
+  qrCard: { alignItems: "center", paddingVertical: 24 },
+  qrDigits: {
     color: T.inkStrong,
-    fontSize: 44,
+    fontSize: 30,
     fontWeight: "700",
-    letterSpacing: 10,
-    textAlign: "center",
-    paddingVertical: 8,
+    letterSpacing: 8,
+    marginTop: 12,
     fontVariant: ["tabular-nums"],
   },
-  notaryCodeSub: { textAlign: "center" },
+  qrSub: { textAlign: "center" },
+
+  /* Gli arrivi sulla schermata del notaio: la pastiglia di stato dell'app
+     (fondo incassato, testo tenue), che diventa nera — lo stato attivo del
+     loro linguaggio — quando la presenza è accreditata. */
+  arrivalPill: {
+    alignSelf: "center",
+    backgroundColor: T.surfaceSunken,
+    borderRadius: T.rFull,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  arrivalPillOn: { backgroundColor: T.ink },
+  arrivalPillText: { color: "#737373", fontSize: 13, fontWeight: "500" },
+  arrivalPillTextOn: { color: "#fff" },
 
   /* --- glifi della modalità notaio: viste, non icone --- */
   broadcastBox: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
@@ -1144,6 +1607,49 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 12,
     fontVariant: ["tabular-nums"],
+  },
+  /* L'alternativa discreta sotto l'azione primaria: solo testo, tenue. */
+  orDivider: {
+    color: T.faint,
+    fontSize: 13,
+    textAlign: "center",
+    marginTop: 4,
+  },
+
+  /* --- la fotocamera a schermo pieno --- */
+  scanner: { flex: 1, backgroundColor: T.ink },
+  /* Sul feed live vale la convenzione dei controlli su foto: pastiglia
+     bianca, testo inchiostro (design.md, «pastiglia di stato su foto»). */
+  scannerClose: {
+    position: "absolute",
+    right: 16,
+    backgroundColor: "#ffffff",
+    borderRadius: T.rFull,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  scannerCloseText: { color: "#262626", fontSize: 15, fontWeight: "600" },
+  scannerFoot: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 24,
+    alignItems: "center",
+  },
+  /* Deviazione voluta dalla pastiglia bianca: il suggerimento è una frase
+     lunga e sta sopra un feed imprevedibile — lo scrim scuro tiene il
+     testo leggibile su qualunque inquadratura senza accecare al buio. */
+  scannerHint: {
+    color: "#fff",
+    fontSize: 15,
+    lineHeight: 21,
+    textAlign: "center",
+    backgroundColor: "rgba(23, 23, 23, 0.55)",
+    borderRadius: T.rCard,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    overflow: "hidden",
   },
 
   /* Nell'app tutto ciò che si tocca è completamente arrotondato. */

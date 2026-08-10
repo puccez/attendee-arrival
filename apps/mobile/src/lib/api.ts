@@ -79,6 +79,35 @@ export function fetchEvents(): Promise<ApiEvent[]> {
   return request<ApiEvent[]>("/events");
 }
 
+export interface CreateEventInput {
+  name: string;
+  startsAt: string;
+  endsAt: string;
+  geofence?: { lat: number; lng: number; radiusM: number };
+}
+
+/**
+ * La nascita di un evento dal telefono: chi conduce lo crea sul posto,
+ * senza passare dalla console. Il server genera id e seme — il seme,
+ * come sempre, non torna indietro da questa porta.
+ */
+export function createEvent(input: CreateEventInput): Promise<ApiEvent> {
+  return request<ApiEvent>("/events", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Gli arrivi dell'evento, per il telefono che conduce: la stessa lista
+ * della console web. Si interroga a polling — è una schermata da tenere
+ * aperta sul tavolo, non un canale push.
+ */
+export function fetchCheckIns(eventId: string): Promise<ApiCheckIn[]> {
+  return request<ApiCheckIn[]>(`/events/${eventId}/check-ins`);
+}
+
 /**
  * Il codice corrente secondo il server. Serve solo alla diagnostica della
  * demo ("il beacon sta emettendo il codice giusto?"): l'app non ne ha

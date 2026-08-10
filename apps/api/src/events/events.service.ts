@@ -40,4 +40,10 @@ export class EventsService {
   async list(limit = 30): Promise<WeMeetEvent[]> {
     return this.store.list(limit);
   }
+
+  /** La cancellazione è totale: dell'evento non resta neanche la telemetria. */
+  async delete(id: string): Promise<void> {
+    const existed = await this.store.delete(id);
+    if (!existed) throw new NotFoundException(`Evento sconosciuto: ${id}`);
+  }
 }

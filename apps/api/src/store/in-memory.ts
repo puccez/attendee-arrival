@@ -8,9 +8,22 @@ import type {
   TelemetryStore,
 } from "./store.js";
 
+/** Ciò che orbita attorno a un evento e deve sparire insieme a lui. */
+interface EventScoped {
+  dropEvent(eventId: string): void;
+}
+
 /** Store in-memory: test e sviluppo locale senza database. */
 export class InMemoryEventsStore implements EventsStore {
   private readonly events = new Map<string, WeMeetEvent>();
+
+  /**
+   * In Postgres la pulizia delle righe collegate la fa la transazione; qui
+   * le mappe vivono in store separati che non si conoscono, quindi i
+   * satelliti vanno consegnati alla nascita — chi cancella l'evento li
+   * svuota, e nessun vincolo referenziale lo farebbe al posto nostro.
+   */
+  constructor(private readonly satellites: EventScoped[] = []) {}
 
   async create(event: WeMeetEvent): Promise<void> {
     this.events.set(event.id, event);
@@ -24,6 +37,12 @@ export class InMemoryEventsStore implements EventsStore {
     return [...this.events.values()]
       .sort((a, b) => b.startsAt.getTime() - a.startsAt.getTime())
       .slice(0, limit);
+  }
+
+  async delete(id: string): Promise<boolean> {
+    if (!this.events.delete(id)) return false;
+    for (const s of this.satellites) s.dropEvent(id);
+    return true;
   }
 }
 
@@ -53,6 +72,13 @@ export class InMemoryCheckInsStore implements CheckInsStore {
   async list(eventId: string): Promise<AttendeeCheckIn[]> {
     return [...(this.results.get(eventId)?.values() ?? [])];
   }
+
+  dropEvent(eventId: string): void {
+    this.results.delete(eventId);
+    for (const key of this.states.keys()) {
+      if (key.startsWith(`${eventId}:`)) this.states.delete(key);
+    }
+  }
 }
 
 export class InMemoryTelemetryStore implements TelemetryStore {
@@ -66,5 +92,11 @@ export class InMemoryTelemetryStore implements TelemetryStore {
     const key = `${eventId}:${deviceId}`;
     this.events.set(key, [...(this.events.get(key) ?? []), ...events]);
     return Promise.resolve();
+  }
+
+  dropEvent(eventId: string): void {
+    for (const key of this.events.keys()) {
+      if (key.startsWith(`${eventId}:`)) this.events.delete(key);
+    }
   }
 }

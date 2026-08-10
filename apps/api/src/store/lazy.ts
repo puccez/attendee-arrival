@@ -40,11 +40,14 @@ export function resolveBacking(): Backing {
         telemetry: new PgTelemetryStore(client),
       };
     } else {
+      // I satelliti prima dell'evento: chi cancella deve poterli svuotare.
+      const checkIns = new InMemoryCheckInsStore();
+      const telemetry = new InMemoryTelemetryStore();
       backing = {
         kind: "memory",
-        events: new InMemoryEventsStore(),
-        checkIns: new InMemoryCheckInsStore(),
-        telemetry: new InMemoryTelemetryStore(),
+        events: new InMemoryEventsStore([checkIns, telemetry]),
+        checkIns,
+        telemetry,
       };
     }
   }
@@ -60,6 +63,9 @@ export class LazyEventsStore implements EventsStore {
   }
   list(limit: number): Promise<WeMeetEvent[]> {
     return resolveBacking().events.list(limit);
+  }
+  delete(id: string): Promise<boolean> {
+    return resolveBacking().events.delete(id);
   }
 }
 

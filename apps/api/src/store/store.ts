@@ -10,6 +10,12 @@ export interface EventsStore {
   get(id: string): Promise<WeMeetEvent | null>;
   /** Gli eventi più recenti, dal più nuovo: la lista che l'app fa toccare. */
   list(limit: number): Promise<WeMeetEvent[]>;
+  /**
+   * Via l'evento e tutto ciò che gli orbitava attorno — consegne e
+   * telemetria non raccontano niente senza l'evento che le ancorava.
+   * `false` se l'evento non c'era: la porta HTTP ne fa un 404.
+   */
+  delete(id: string): Promise<boolean>;
 }
 
 /** Lo stato accumulato di un attendee: il borsellino consegnato finora. */
