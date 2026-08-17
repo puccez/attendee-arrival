@@ -65,3 +65,8 @@ Il firmware si compila e si prova con PlatformIO: vedi
 2. [`packages/core/test/verification.test.ts`](packages/core/test/verification.test.ts):
    il modello di fiducia, un comportamento per test
 3. [`docs/spec.md`](docs/spec.md), la spec tecnica, per chi vuole i dettagli
+
+## Licenza
+
+Tutti i diritti riservati: il repository è pubblico per essere letto e
+valutato, non per essere usato. I dettagli in [`LICENSE`](LICENSE).
